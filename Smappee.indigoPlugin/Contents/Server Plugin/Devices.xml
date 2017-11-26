@@ -1,0 +1,939 @@
+<?xml version="1.0"?>
+
+<Devices>
+
+    <DeviceFactory>
+        <Name>Define Smappee Device...</Name>
+        <ButtonTitle>Close</ButtonTitle>
+        <ConfigUI>
+
+            <Field id="smappeeLocationValue" type="textfield" defaultValue="" readonly="true" 
+                   visibleBindingId="hideSmappeeLocationValue" visibleBindingValue="false">
+                <Label>Smappee Location:</Label>
+            </Field>
+
+            <Field id="smappeeLocationList" type="menu" defaultValue="NONE"
+                visibleBindingId="hideSmappeeLocationList" visibleBindingValue="false">
+                <Label>Smappee Location:</Label>
+                <List class="self" method="_getSmappeeLocationList" dynamicReload="true" />
+                <CallbackMethod>_smappeeLocationSelected</CallbackMethod>
+            </Field>
+
+            <Field id="separator-1" type="separator"/> 
+
+            <Field type="list" id="definedSmappeeElectricitySolarList" readonly="YES"
+                visibleBindingId="hideDefinedSmappeeElectricitySolarList" visibleBindingValue="false">
+                <Label>Indigo Smappee Device(s):</Label>
+                <List class="self" filter="" method="_getDefinedSmappeeElectricitySolarList" dynamicReload="true" />
+            </Field>
+
+<!--        ELECTRICITY -->
+             <Field type="checkbox" id="addSmappeeElectricityDeviceEnabled" defaultValue="false" hidden="true"  dynamicReload="true">
+                <Label></Label>
+                <Description>Electricity Add Enabled</Description>
+            </Field>
+            <Field type="button" id="addSmappeeElectricityDevice"
+                    visibleBindingId="addSmappeeElectricityDeviceEnabled" visibleBindingValue="true">
+                <Title>Add Electricity Device</Title>
+                <CallbackMethod>_addSmappeeElectricityDevice</CallbackMethod>
+            </Field>
+             <Field type="checkbox" id="removeSmappeeElectricityDeviceEnabled" defaultValue="false" hidden="true"  dynamicReload="true">
+                <Label></Label>
+                <Description>Electricity Remove Enabled</Description>
+            </Field>
+            <Field type="button" id="removeSmappeeElectricityDevice"
+                    visibleBindingId="removeSmappeeElectricityDeviceEnabled" visibleBindingValue="true">
+                <Title>Remove Electricity Device</Title>
+                <CallbackMethod>_removeSmappeeElectricityDevice</CallbackMethod>
+            </Field>
+
+<!--        ELECTRICITY NET -->
+            <Field type="checkbox" id="addSmappeeElectricityNetDeviceEnabled" defaultValue="false" hidden="true"  dynamicReload="true">
+                <Label></Label>
+                <Description>Net Electricity Add Enabled</Description>
+            </Field>
+            <Field type="button" id="addSmappeeElectricityNetDevice"
+                    visibleBindingId="addSmappeeElectricityNetDeviceEnabled" visibleBindingValue="true">
+                <Title>Add Net Electricity Device</Title>
+                <CallbackMethod>_addSmappeeElectricityNetDevice</CallbackMethod>
+            </Field>
+
+            <Field type="checkbox" id="removeSmappeeElectricityNetDeviceEnabled" defaultValue="false" hidden="true"  dynamicReload="true">
+                <Label></Label>
+                <Description>Net Electricity Remove Enabled</Description>
+            </Field>
+            <Field type="button" id="removeSmappeeElectricityNetDevice"
+                    visibleBindingId="removeSmappeeElectricityNetDeviceEnabled" visibleBindingValue="true">
+                <Title>Remove Net Electricity Device</Title>
+                <CallbackMethod>_removeSmappeeElectricityNetDevice</CallbackMethod>
+            </Field>
+
+ 
+<!--        ELECTRICITY Saved -->
+            <Field type="checkbox" id="addSmappeeElectricitySavedDeviceEnabled" defaultValue="false" hidden="true"  dynamicReload="true">
+                <Label></Label>
+                <Description>Saved Electricity Add Enabled</Description>
+            </Field>
+            <Field type="button" id="addSmappeeElectricitySavedDevice"
+                    visibleBindingId="addSmappeeElectricitySavedDeviceEnabled" visibleBindingValue="true">
+                <Title>Add Saved Electricity Device</Title>
+                <CallbackMethod>_addSmappeeElectricitySavedDevice</CallbackMethod>
+            </Field>
+
+            <Field type="checkbox" id="removeSmappeeElectricitySavedDeviceEnabled" defaultValue="false" hidden="true"  dynamicReload="true">
+                <Label></Label>
+                <Description>Saved Electricity Remove Enabled</Description>
+            </Field>
+            <Field type="button" id="removeSmappeeElectricitySavedDevice"
+                    visibleBindingId="removeSmappeeElectricitySavedDeviceEnabled" visibleBindingValue="true">
+                <Title>Remove Saved Electricity Device</Title>
+                <CallbackMethod>_removeSmappeeElectricitySavedtDevice</CallbackMethod>
+            </Field>
+
+ 
+<!--        SOLAR -->
+            <Field type="checkbox" id="addSmappeeSolarDeviceEnabled" defaultValue="false" hidden="true"  dynamicReload="true">
+                <Label></Label>
+                <Description>Solar Add Enabled</Description>
+            </Field>
+            <Field type="button" id="addSmappeeSolarDevice"
+                    visibleBindingId="addSmappeeSolarDeviceEnabled" visibleBindingValue="true">
+                <Title>Add Solar PV Device</Title>
+                <CallbackMethod>_addSmappeeSolarDevice</CallbackMethod>
+            </Field>
+
+            <Field type="checkbox" id="removeSmappeeSolarDeviceEnabled" defaultValue="false" hidden="true"  dynamicReload="true">
+                <Label></Label>
+                <Description>Solar Remove Enabled</Description>
+            </Field>
+            <Field type="button" id="removeSmappeeSolarDevice"
+                    visibleBindingId="removeSmappeeSolarDeviceEnabled" visibleBindingValue="true">
+                <Title>Remove Solar PV Device</Title>
+                <CallbackMethod>_removeSmappeeSolarDevice</CallbackMethod>
+            </Field>
+
+ 
+<!--        SOLAR USED -->
+            <Field type="checkbox" id="addSmappeeSolarUsedDeviceEnabled" defaultValue="false" hidden="true"  dynamicReload="true">
+                <Label></Label>
+                <Description>Solar Used Add Enabled</Description>
+            </Field>
+            <Field type="button" id="addSmappeeSolarUsedDevice"
+                    visibleBindingId="addSmappeeSolarUsedDeviceEnabled" visibleBindingValue="true">
+                <Title>Add Solar PV Used Device</Title>
+                <CallbackMethod>_addSmappeeSolarUsedDevice</CallbackMethod>
+            </Field>
+
+            <Field type="checkbox" id="removeSmappeeSolarUsedDeviceEnabled" defaultValue="false" hidden="true"  dynamicReload="true">
+                <Label></Label>
+                <Description>Solar Used Remove Enabled</Description>
+            </Field>
+            <Field type="button" id="removeSmappeeSolarUsedDevice"
+                    visibleBindingId="removeSmappeeSolarUsedDeviceEnabled" visibleBindingValue="true">
+                <Title>Remove Solar PV Used Device</Title>
+                <CallbackMethod>_removeSmappeeSolarUsedDevice</CallbackMethod>
+            </Field>
+
+ 
+<!--        SOLAR EXPORTED -->
+            <Field type="checkbox" id="addSmappeeSolarExportedDeviceEnabled" defaultValue="false" hidden="true"  dynamicReload="true">
+                <Label></Label>
+                <Description>Solar Exported Add Enabled</Description>
+            </Field>
+            <Field type="button" id="addSmappeeSolarExportedDevice"
+                    visibleBindingId="addSmappeeSolarExportedDeviceEnabled" visibleBindingValue="true">
+                <Title>Add Solar PV Exported Device</Title>
+                <CallbackMethod>_addSmappeeSolarExportedDevice</CallbackMethod>
+            </Field>
+
+            <Field type="checkbox" id="removeSmappeeSolarExportedDeviceEnabled" defaultValue="false" hidden="true"  dynamicReload="true">
+                <Label></Label>
+                <Description>Solar Exported Remove Enabled</Description>
+            </Field>
+            <Field type="button" id="removeSmappeeSolarExportedDevice"
+                    visibleBindingId="removeSmappeeSolarExportedDeviceEnabled" visibleBindingValue="true">
+                <Title>Remove Solar PV Exported Device</Title>
+                <CallbackMethod>_removeSmappeeSolarExportedDevice</CallbackMethod>
+            </Field>
+
+<!--        ELECTRICITY / ELECTRICITY NET / SOLAR / SOLAR USED / SOLAR EXPORTED HELP-->
+             <Field type="checkbox" id="helpSmappeeElectricitySolarEnabled" defaultValue="false" hidden="true"  dynamicReload="true">
+                <Label></Label>
+                <Description>help Smappee UsageSolarUsageNetSolarUsed Enabled</Description>
+            </Field>
+
+            <Field id="helpSmappeeElectricitySolar" type="label" visibleBindingId="helpSmappeeElectricitySolarEnabled" visibleBindingValue="true" fontSize="small" fontColor="blue">
+                <Label>A Usage/UsageNet/Solar/SolarUsed/SolarExported device can only be removed by editing the device [not one of the Appliances or Actuators]</Label>
+            </Field>
+
+
+            <Field id="separator-2" type="separator"/> 
+
+<!--        SENSOR - Gas / Water -->
+
+            <Field type="list" id="definedSmappeeSensorList" readonly="YES"
+                visibleBindingId="hideDefinedSmappeeSensorList" visibleBindingValue="false">
+                <Label>Indigo Sensor Device(s):</Label>
+                <List class="self" method="_getDefinedSmappeeSensorList" dynamicReload="true" />
+            </Field>
+
+            <Field id="potentialSmappeeSensorList" type="list"
+                   visibleBindingId="hidePotentialSmappeeSensorList" visibleBindingValue="false">
+                <Label>Available Smappee Sensor(s):</Label>
+                <List class="self" filter="" method="_getPotentialSmappeeSensorList" dynamicReload="true"/>
+                <CallbackMethod>_smappeeSensorSelected</CallbackMethod>
+            </Field>
+
+            <Field type="checkbox" id="addSmappeeSensorDeviceEnabled" defaultValue="false" hidden="true"  dynamicReload="true">
+                <Label></Label>
+                <Description>Sensor Add Enabled</Description>
+            </Field>
+            <Field type="button" id="addSmappeeSensorDevice"
+                    visibleBindingId="addSmappeeSensorDeviceEnabled" visibleBindingValue="true">
+                <Title>Queue Add Gas / Water Sensor(s)</Title>
+                <CallbackMethod>_addSmappeeSensorDevice</CallbackMethod>
+            </Field>
+
+            <Field id="separator-3" type="separator"/>
+
+<!--        APPLIANCE -->
+
+            <Field type="list" id="definedSmappeeApplianceList" readonly="YES"
+                visibleBindingId="hideDefinedSmappeeApplianceList" visibleBindingValue="false">
+                <Label>Indigo Appliance Device(s):</Label>
+                <List class="self" method="_getDefinedSmappeeApplianceList" dynamicReload="true" />
+            </Field>
+
+            <Field id="potentialSmappeeApplianceList" type="list"
+                   visibleBindingId="hidePotentialSmappeeApplianceList" visibleBindingValue="false">
+                <Label>Available Smappee Appliance(s):</Label>
+                <List class="self" filter="" method="_getPotentialSmappeeApplianceList" dynamicReload="true"/>
+                <CallbackMethod>_smappeeApplianceSelected</CallbackMethod>
+            </Field>
+
+            <Field type="checkbox" id="addSmappeeApplianceDeviceEnabled" defaultValue="false" hidden="true"  dynamicReload="true">
+                <Label></Label>
+                <Description>Appliance Add Enabled</Description>
+            </Field>
+            <Field type="button" id="addSmappeeApplianceDevice"
+                    visibleBindingId="addSmappeeApplianceDeviceEnabled" visibleBindingValue="true">
+                <Title>Queue Add Appliance(s)</Title>
+                <CallbackMethod>_addSmappeeApplianceDevice</CallbackMethod>
+            </Field>
+
+            <Field id="separator-4" type="separator"/>
+
+<!--        ACTUATOR -->
+
+            <Field type="list" id="definedSmappeeActuatorList" readonly="YES"
+                visibleBindingId="hideDefinedSmappeeActuatorList" visibleBindingValue="false">
+                <Label>Indigo Actuator Device(s):</Label>
+                <List class="self" method="_getDefinedSmappeeActuatorList" dynamicReload="true" />
+            </Field>
+
+            <Field id="potentialSmappeeActuatorList" type="list"
+                   visibleBindingId="hidePotentialSmappeeActuatorList" visibleBindingValue="false">
+                <Label>Available Smappee Actuator(s):</Label>
+                <List class="self" filter="" method="_getPotentialSmappeeActuatorList" dynamicReload="true"/>
+                <CallbackMethod>_smappeeActuatorSelected</CallbackMethod>
+            </Field>
+
+            <Field type="checkbox" id="addSmappeeActuatorDeviceEnabled" defaultValue="false" hidden="true"  dynamicReload="true">
+                <Label></Label>
+                <Description>Actuator Add Enabled</Description>
+            </Field>
+            <Field type="button" id="addSmappeeActuatorDevice"
+                    visibleBindingId="addSmappeeActuatorDeviceEnabled" visibleBindingValue="true">
+                <Title>Queue Add Actuator(s)</Title>
+                <CallbackMethod>_addSmappeeActuatorDevice</CallbackMethod>
+            </Field>
+
+<!--        DEBUG -->  
+            <Field id="separator-9" type="separator" hidden="true" />
+
+
+            <Field id="smappeeFunction" type="textfield" defaultValue="New..." readonly="true" hidden="true" > 
+                <Label>DEBUG: Smappee Function:</Label>
+            </Field>
+
+             <Field type="checkbox" id="hideSmappeeLocationValue" defaultValue="false" hidden="true" >
+                <Label>DEBUG:</Label>
+                <Description>Hide Smappee Location Value</Description>
+            </Field>
+
+            <Field type="checkbox" id="hideSmappeeLocationList" defaultValue="false" hidden="true" >
+                <Label>DEBUG:</Label>
+                <Description>Hide Smappee Location List</Description>
+            </Field>           
+
+            <Field type="checkbox" id="hideDefinedSmappeeElectricitySolarList" defaultValue="false" hidden="true" >
+                <Label>DEBUG:</Label>
+                <Description>Hide Smappee Device Group</Description>
+            </Field>           
+
+            <Field type="checkbox" id="hideDefinedSmappeeSensorList" defaultValue="false" hidden="true" >
+                <Label>DEBUG:</Label>
+                <Description>Hide Defined Smappee Sensor List</Description>
+            </Field>           
+
+            <Field type="checkbox" id="hidePotentialSmappeeSensorList" defaultValue="false" hidden="true" >
+                <Label>DEBUG:</Label>
+                <Description>Hide Smappee Sensor List</Description>
+            </Field>           
+
+            <Field type="checkbox" id="hideDefinedSmappeeApplianceList" defaultValue="false" hidden="true" >
+                <Label>DEBUG:</Label>
+                <Description>Hide Defined Smappee Appliance List</Description>
+            </Field>           
+
+            <Field type="checkbox" id="hidePotentialSmappeeApplianceList" defaultValue="false" hidden="true" >
+                <Label>DEBUG:</Label>
+                <Description>Hide Smappee Appliance List</Description>
+            </Field>           
+
+            <Field type="checkbox" id="hideDefinedSmappeeActuatorList" defaultValue="false" hidden="true" >
+                <Label>DEBUG:</Label>
+                <Description>Hide Defined Smappee Actuator List</Description>
+            </Field>           
+
+            <Field type="checkbox" id="hidePotentialSmappeeActuatorList" defaultValue="false" hidden="true" >
+                <Label>DEBUG:</Label>
+                <Description>Hide Smappee Actuator List</Description>
+            </Field>           
+
+            <Field type="checkbox" id="hideInstructions" defaultValue="false" hidden="true" >
+                <Label>DEBUG:</Label>
+                <Description>Hide Instructions</Description>
+            </Field>           
+
+        </ConfigUI>        
+    </DeviceFactory>
+
+    <Device type="custom" id="smappeeElectricity">
+        <Name>Electricity</Name>
+        <ConfigUI>
+            <Field id="serviceLocationId" type="textfield" readonly="YES" defaultValue="0000">
+                <Label>Service Location ID:</Label>
+            </Field>
+            <Field id="serviceLocationName" type="textfield" readonly="YES" defaultValue="">
+                <Label>Service Location Name:</Label>
+            </Field>
+            <Field type="checkbox" id="SupportsEnergyMeter" defaultValue="true" hidden="true" />
+
+            <Field type="checkbox" id="SupportsEnergyMeterCurPower" defaultValue="true" hidden="false">
+                <Label>Supports power load:</Label>
+                <Description>Show current power load (Watts) in UI</Description>
+            </Field>
+            <Field type="menu" id="optionsEnergyMeterCurPower" defaultValue="last" hidden="false">
+                <Label>Options:</Label>
+                <List>
+                    <Option value="mean">Mean (average) of recorded values</Option>
+                    <Option value="minimum">Minimum recorded value</Option>
+                    <Option value="maximum">Maximum recorded value</Option>
+                    <Option value="last">Last recorded value</Option>
+                </List>
+            </Field>
+
+            <Field id="separator-1" type="separator"/>  
+
+            <Field type="checkbox" id="hideEnergyMeterCurPower" defaultValue="false" hidden="false">
+                <Label>Current usage:</Label>
+                <Description>Hide current power load (Watts) in Event Log</Description>
+            </Field>
+            <Field type="checkbox" id="hideEnergyMeterAccumPower" defaultValue="false" hidden="false">
+                <Label>Total usage:</Label>
+                <Description>Hide energy total (kWh) in Event Log</Description>
+            </Field>
+            <Field type="checkbox" id="hideEnergyMeterAccumPowerCost" defaultValue="false" hidden="false">
+                <Label>Total usage cost :</Label>
+                <Description>Hide energy total (kWh) cost in Event Log</Description>
+            </Field>
+            <Field type="checkbox" id="hideAlwaysOnPower" defaultValue="true" hidden="false">
+                <Label>Always On:</Label>
+                <Description>Hide always on power load (Watts) in Event Log</Description>
+            </Field>
+            <Field id="separator-2" type="separator"/>
+            <Field id="currencyCode" type="textfield" defaultValue="UKP" hidden="false">
+                <Label>Currency Code:</Label>
+            </Field>
+            <Field id="dailyStandingCharge" type="textfield" defaultValue="0.00" hidden="false">
+                <Label>Daily Standing Charge:</Label>
+            </Field>
+            <Field id="kwhUnitCost" type="textfield" defaultValue="0.00" hidden="false">
+                <Label>kWh Unit Cost:</Label>
+            </Field>
+        </ConfigUI>
+        <States>
+            <State id="smappeeElectricityOnline">
+                <ValueType>Boolean</ValueType>
+                <TriggerLabel>Smappee Online</TriggerLabel>
+                <ControlPageLabel>Smappee Online</ControlPageLabel>
+            </State>
+            <State id="alwaysOn">
+                <ValueType>Float</ValueType>
+                <TriggerLabel>Always On</TriggerLabel>
+                <ControlPageLabel>Always On</ControlPageLabel>
+            </State>
+            <State id="dailyTotalCost">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>Daily Total Cost</TriggerLabel>
+                <ControlPageLabel>Daily Total Cost</ControlPageLabel>
+            </State>
+        </States>
+        <UiDisplayStateId>curEnergyLevel</UiDisplayStateId>
+    </Device>
+
+    <Device type="custom" id="smappeeElectricityNet">
+        <Name>Electricity Net</Name>
+        <ConfigUI>
+            <Field id="serviceLocationId" type="textfield" readonly="YES" defaultValue="0000">
+                <Label>Service Location ID:</Label>
+            </Field>
+            <Field id="serviceLocationName" type="textfield" readonly="YES" defaultValue="">
+                <Label>Service Location Name:</Label>
+            </Field>
+            <Field type="checkbox" id="SupportsEnergyMeter" defaultValue="true" hidden="true" />
+
+            <Field type="checkbox" id="SupportsEnergyMeterCurPower" defaultValue="true" hidden="false">
+                <Label>Supports net usage:</Label>
+                <Description>Show current net usage (Watts) in UI</Description>
+            </Field>
+            <Field type="menu" id="optionsEnergyMeterCurPower" defaultValue="last" hidden="false">
+                <Label>Options:</Label>
+                <List>
+                    <Option value="mean">Mean (average) of recorded values</Option>
+                    <Option value="minimum">Minimum recorded value</Option>
+                    <Option value="maximum">Maximum recorded value</Option>
+                    <Option value="last">Last recorded value</Option>
+                </List>
+            </Field>
+            <Field id="separator-1" type="separator"/> 
+
+            <Field type="checkbox" id="hideEnergyMeterCurNetPower" defaultValue="false" hidden="false">
+                <Label>Current net:</Label>
+                <Description>Hide current net power load (Watts) in Event Log</Description>
+            </Field>
+            <Field type="checkbox" id="hideEnergyMeterCurZeroNetPower" defaultValue="true" hidden="false"
+                   visibleBindingId="hideEnergyMeterCurNetPower" visibleBindingValue="false">
+                <Label>Zero net:</Label>
+                <Description>Hide zero net power load (Watts) in Event Log</Description>
+            </Field>
+           <Field type="checkbox" id="hideEnergyMeterAccumNetPower" defaultValue="false" hidden="false">
+                <Label>Total net:</Label>
+                <Description>Hide energy net total (kWh) in Event Log</Description>
+            </Field>
+            <Field type="checkbox" id="hideEnergyMeterAccumNetPowerCost" defaultValue="false" hidden="false">
+                <Label>Total net cost :</Label>
+                <Description>Hide energy total (kWh) net cost in Event Log</Description>
+            </Field>
+            <Field type="checkbox" id="hideNoChangeEnergyMeterAccumNetPower" defaultValue="true" hidden="false"
+                   visibleBindingId="hideEnergyMeterAccumNetPower" visibleBindingValue="false">
+                <Label>Hide no change net usage:</Label>
+                <Description>Hide no change in net usage (Watts) in Event Log</Description>
+            </Field>
+        </ConfigUI>
+        <States>
+            <State id="smappeeElectricityNetOnline">
+                <ValueType>Boolean</ValueType>
+                <TriggerLabel>Smappee Online</TriggerLabel>
+                <ControlPageLabel>Smappee Online</ControlPageLabel>
+            </State>
+            <State id="dailyNetTotalCost">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>Daily Net Total Cost</TriggerLabel>
+                <ControlPageLabel>Daily Net Total Cost</ControlPageLabel>
+            </State>
+            <State id="kwhCurrentNetPercentage">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>kWh Current Net Percentage</TriggerLabel>
+                <ControlPageLabel>kWh Current Net Percentage</ControlPageLabel>
+            </State>
+            <State id="kwhDailyTotalNetPercentage">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>kWh Daily Total Net Percentage</TriggerLabel>
+                <ControlPageLabel>kWh Daily Total Net Percentage</ControlPageLabel>
+            </State>
+        </States>
+        <UiDisplayStateId>curEnergyLevel</UiDisplayStateId>
+    </Device>
+
+    <Device type="custom" id="smappeeElectricitySaved">
+        <Name>Electricity Saved</Name>
+        <ConfigUI>
+            <Field id="serviceLocationId" type="textfield" readonly="YES" defaultValue="0000">
+                <Label>Service Location ID:</Label>
+            </Field>
+            <Field id="serviceLocationName" type="textfield" readonly="YES" defaultValue="">
+                <Label>Service Location Name:</Label>
+            </Field>
+            <Field type="checkbox" id="SupportsEnergyMeter" defaultValue="true" hidden="true" />
+
+            <Field type="checkbox" id="SupportsEnergyMeterCurPower" defaultValue="true" hidden="false">
+                <Label>Supports saved usage:</Label>
+                <Description>Show current saved usage (Watts) in UI</Description>
+            </Field>
+            <Field type="menu" id="optionsEnergyMeterCurPower" defaultValue="last" hidden="false">
+                <Label>Options:</Label>
+                <List>
+                    <Option value="mean">Mean (average) of recorded values</Option>
+                    <Option value="minimum">Minimum recorded value</Option>
+                    <Option value="maximum">Maximum recorded value</Option>
+                    <Option value="last">Last recorded value</Option>
+                </List>
+            </Field>
+            <Field id="separator-1" type="separator"/> 
+
+            <Field type="checkbox" id="hideEnergyMeterCurSavedPower" defaultValue="false" hidden="false">
+                <Label>Current saved:</Label>
+                <Description>Hide current saved power load (Watts) in Event Log</Description>
+            </Field>
+            <Field type="checkbox" id="hideEnergyMeterCurZeroSavedPower" defaultValue="true" hidden="false"
+                   visibleBindingId="hideEnergyMeterCurSavedPower" visibleBindingValue="false">
+                <Label>Zero saved:</Label>
+                <Description>Hide zero saved power load (Watts) in Event Log</Description>
+            </Field>
+           <Field type="checkbox" id="hideEnergyMeterAccumSavedPower" defaultValue="false" hidden="false">
+                <Label>Total saved:</Label>
+                <Description>Hide energy saved total (kWh) in Event Log</Description>
+            </Field>
+            <Field type="checkbox" id="hideEnergyMeterAccumSavedPowerCost" defaultValue="false" hidden="false">
+                <Label>Total saved cost :</Label>
+                <Description>Hide energy total (kWh) saved cost in Event Log</Description>
+            </Field>
+            <Field type="checkbox" id="hideNoChangeEnergyMeterAccumSavedPower" defaultValue="true" hidden="false"
+                   visibleBindingId="hideEnergyMeterAccumSavedPower" visibleBindingValue="false">
+                <Label>Hide no change saved usage:</Label>
+                <Description>Hide no change in saved usage (Watts) in Event Log</Description>
+            </Field>
+        </ConfigUI>
+        <States>
+            <State id="smappeeElectricitySavedOnline">
+                <ValueType>Boolean</ValueType>
+                <TriggerLabel>Smappee Online</TriggerLabel>
+                <ControlPageLabel>Smappee Online</ControlPageLabel>
+            </State>
+            <State id="dailyTotalCostSaving">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>Daily Total Cost Saving</TriggerLabel>
+                <ControlPageLabel>Daily Total Cost Saving</ControlPageLabel>
+            </State>
+            <State id="kwhCurrentSavedPercentage">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>kWh Current Saved Percentage</TriggerLabel>
+                <ControlPageLabel>kWh Current Saved Percentage</ControlPageLabel>
+            </State>
+            <State id="kwhDailyTotalSavedPercentage">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>kWh Daily Total Saved Percentage</TriggerLabel>
+                <ControlPageLabel>kWh Daily Total Saved Percentage</ControlPageLabel>
+            </State>
+        </States>
+        <UiDisplayStateId>curEnergyLevel</UiDisplayStateId>
+    </Device>
+
+    <Device type="custom" id="smappeeSolar">
+        <Name>Solar</Name>
+        <ConfigUI>
+            <Field id="serviceLocationId" type="textfield" readonly="YES" defaultValue="0000">
+                <Label>Service Location ID:</Label>
+            </Field>
+            <Field id="serviceLocationName" type="textfield" readonly="YES" defaultValue="">
+                <Label>Service Location Name:</Label>
+            </Field>
+            <Field type="checkbox" id="SupportsEnergyMeter" defaultValue="true" hidden="true" />
+
+            <Field type="checkbox" id="SupportsEnergyMeterCurPower" defaultValue="true" hidden="false">
+                <Label>Supports generation:</Label>
+                <Description>Show current generation (Watts) in UI</Description>
+            </Field>
+            <Field type="menu" id="optionsEnergyMeterCurPower" defaultValue="last" hidden="false">
+                <Label>Options:</Label>
+                <List>
+                    <Option value="mean">Mean (average) of recorded values</Option>
+                    <Option value="minimum">Minimum recorded value</Option>
+                    <Option value="maximum">Maximum recorded value</Option>
+                    <Option value="last">Last recorded value</Option>
+                </List>
+            </Field>
+            <Field id="separator-1" type="separator"/>  
+            <Field type="checkbox" id="hideSolarMeterCurGeneration" defaultValue="false" hidden="false">
+                <Label>Current solar:</Label>
+                <Description>Hide current generation (Watts) in Event Log</Description>
+            </Field>
+            <Field type="checkbox" id="hideZeroSolarMeterCurGeneration" defaultValue="true" hidden="false"
+                   visibleBindingId="hideSolarMeterCurGeneration" visibleBindingValue="false">
+                <Label>Zero solar:</Label>
+                <Description>Hide zero generation (Watts) in Event Log</Description>
+            </Field>
+           <Field type="checkbox" id="hideSolarMeterAccumGeneration" defaultValue="false" hidden="false">
+                <Label>Total solar:</Label>
+                <Description>Hide generation (kWh) in Event Log</Description>
+            </Field>
+ 
+            <Field type="checkbox" id="hideSolarMeterAccumGenerationCost" defaultValue="false" hidden="false">
+                <Label>Total Generation cost :</Label>
+                <Description>Hide generation total (kWh) cost in Event Log</Description>
+            </Field>
+
+            <Field type="checkbox" id="hideNoChangeInSolarMeterAccumGeneration" defaultValue="true" hidden="false"
+                   visibleBindingId="hideSolarMeterAccumGeneration" visibleBindingValue="false">
+                <Label>Hide no change solar:</Label>
+                <Description>Hide no change in generation (Watts) in Event Log</Description>
+            </Field>
+            <Field id="separator-2" type="separator"/>  
+            <Field id="currencyCode" type="textfield" defaultValue="UKP" hidden="false">
+                <Label>Currency Code:</Label>
+            </Field>
+            <Field id="generationRate" type="textfield" defaultValue="0.00" hidden="false">
+                <Label>Generation Rate:</Label>
+            </Field>
+            <Field type="menu" id="exportType" defaultValue="percentage" hidden="false">
+                <Label>Export Type:</Label>
+                <List>
+                    <Option value="none">None</Option>
+                    <Option value="percentage">Assumed Export Percentage</Option>
+                    <Option value="actual">Actual Export</Option>
+                </List>
+            </Field>
+            <Field id="exportPercentage" type="textfield" defaultValue="50" hidden="false" visibleBindingId="exportType" visibleBindingValue="percentage">
+                <Label>Assumed Export Percentage:</Label>
+            </Field>
+            <Field id="exportRate" type="textfield" defaultValue="0.00" hidden="false">
+                <Label>Export Rate:</Label>
+            </Field>
+        </ConfigUI>
+        <States>
+            <State id="smappeeSolarOnline">
+                <ValueType>Boolean</ValueType>
+                <TriggerLabel>Smappee Online</TriggerLabel>
+                <ControlPageLabel>Smappee Online</ControlPageLabel>
+            </State>
+            <State id="dailyTotalIncome">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>Daily Total Solar Income</TriggerLabel>
+                <ControlPageLabel>Daily Total Solar Income</ControlPageLabel>
+            </State>
+            <State id="dailyTotalGenOnlyIncome">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>Daily Total (Gen Only) Solar Income</TriggerLabel>
+                <ControlPageLabel>Daily (Gen Only) Solar Income</ControlPageLabel>
+            </State>
+            <State id="dailyTotalPlusSavedElecIncome">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>Daily Total Solar Plus Savings Income</TriggerLabel>
+                <ControlPageLabel>Daily Total Solar Plus Savings Income</ControlPageLabel>
+            </State>
+        </States>
+        <UiDisplayStateId>curEnergyLevel</UiDisplayStateId>
+    </Device>
+
+    <Device type="custom" id="smappeeSolarUsed">
+        <Name>Solar Used</Name>
+        <ConfigUI>
+            <Field id="serviceLocationId" type="textfield" readonly="YES" defaultValue="0000">
+                <Label>Service Location ID:</Label>
+            </Field>
+            <Field id="serviceLocationName" type="textfield" readonly="YES" defaultValue="">
+                <Label>Service Location Name:</Label>
+            </Field>
+            <Field type="checkbox" id="SupportsEnergyMeter" defaultValue="true" hidden="true" />
+
+            <Field type="checkbox" id="SupportsEnergyMeterCurPower" defaultValue="true" hidden="false">
+                <Label>Supports Solar Used:</Label>
+                <Description>Show current solar used (Watts) in UI</Description>
+            </Field>
+            <Field type="menu" id="optionsEnergyMeterCurPower" defaultValue="last" hidden="false">
+                <Label>Options:</Label>
+                <List>
+                    <Option value="mean">Mean (average) of recorded values</Option>
+                    <Option value="minimum">Minimum recorded value</Option>
+                    <Option value="maximum">Maximum recorded value</Option>
+                    <Option value="last">Last recorded value</Option>
+                </List>
+            </Field>
+            <Field id="separator-1" type="separator"/>  
+            <Field type="checkbox" id="hideSolarUsedMeterCurGeneration" defaultValue="false" hidden="false">
+                <Label>Current solar used:</Label>
+                <Description>Hide current solar used (Watts) in Event Log</Description>
+            </Field>
+            <Field type="checkbox" id="hideZeroSolarUsedMeterCurGeneration" defaultValue="true" hidden="false"
+                   visibleBindingId="hideSolarUsedMeterCurGeneration" visibleBindingValue="false">
+                <Label>Zero solar used:</Label>
+                <Description>Hide zero solar used (Watts) in Event Log</Description>
+            </Field>
+           <Field type="checkbox" id="hideSolarUsedMeterAccumGeneration" defaultValue="false" hidden="false">
+                <Label>Total solar used:</Label>
+                <Description>Hide energy solar used (kWh) in Event Log</Description>
+            </Field>
+            <Field type="checkbox" id="hideNoChangeInSolarUsedMeterAccumGeneration" defaultValue="true" hidden="false"
+                   visibleBindingId="hideSolarUsedMeterAccumGeneration" visibleBindingValue="false">
+                <Label>Hide no change solar used:</Label>
+                <Description>Hide no change in solar used (Watts) in Event Log</Description>
+            </Field>
+        </ConfigUI>
+        <States>
+            <State id="smappeeSolarUsedOnline">
+                <ValueType>Boolean</ValueType>
+                <TriggerLabel>Smappee Online</TriggerLabel>
+                <ControlPageLabel>Smappee Online</ControlPageLabel>
+            </State>
+            <State id="kwhCurrentUsedPercentage">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>kWh Current Used Percentage</TriggerLabel>
+                <ControlPageLabel>kWh Current Used Percentage</ControlPageLabel>
+            </State>
+            <State id="kwhDailyTotalUsedPercentage">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>kWh Daily Total Used Percentage</TriggerLabel>
+                <ControlPageLabel>kWh Daily Total Used Percentage</ControlPageLabel>
+            </State>
+        </States>
+        <UiDisplayStateId>curEnergyLevel</UiDisplayStateId>
+    </Device>
+
+    <Device type="custom" id="smappeeSolarExported">
+        <Name>Solar Exported</Name>
+        <ConfigUI>
+            <Field id="serviceLocationId" type="textfield" readonly="YES" defaultValue="0000">
+                <Label>Service Location ID:</Label>
+            </Field>
+            <Field id="serviceLocationName" type="textfield" readonly="YES" defaultValue="">
+                <Label>Service Location Name:</Label>
+            </Field>
+            <Field type="checkbox" id="SupportsEnergyMeter" defaultValue="true" hidden="true" />
+
+            <Field type="checkbox" id="SupportsEnergyMeterCurPower" defaultValue="true" hidden="false">
+                <Label>Supports solar exported:</Label>
+                <Description>Show current solar exported (Watts) in UI</Description>
+            </Field>
+            <Field type="menu" id="optionsEnergyMeterCurPower" defaultValue="last" hidden="false">
+                <Label>Options:</Label>
+                <List>
+                    <Option value="mean">Mean (average) of recorded values</Option>
+                    <Option value="minimum">Minimum recorded value</Option>
+                    <Option value="maximum">Maximum recorded value</Option>
+                    <Option value="last">Last recorded value</Option>
+                </List>
+            </Field>
+            <Field id="separator-1" type="separator"/>  
+            <Field type="checkbox" id="hideSolarExportedMeterCurGeneration" defaultValue="false" hidden="false">
+                <Label>Current solar exported:</Label>
+                <Description>Hide current solar exported (Watts) in Event Log</Description>
+            </Field>
+            <Field type="checkbox" id="hideZeroSolarExportedMeterCurGeneration" defaultValue="true" hidden="false"
+                   visibleBindingId="hideSolarExportedMeterCurGeneration" visibleBindingValue="false">
+                <Label>Zero solar exported:</Label>
+                <Description>Hide zero solar exported (Watts) in Event Log</Description>
+            </Field>
+           <Field type="checkbox" id="hideSolarExportedMeterAccumGeneration" defaultValue="false" hidden="false">
+                <Label>Total solar exported:</Label>
+                <Description>Hide energy solar exported (kWh) in Event Log</Description>
+            </Field>
+            <Field type="checkbox" id="hideNoChangeInSolarExportedMeterAccumGeneration" defaultValue="true" hidden="false"
+                   visibleBindingId="hideSolarExportedMeterAccumGeneration" visibleBindingValue="false">
+                <Label>Hide no change solar exported:</Label>
+                <Description>Hide no change in solar exported (Watts) in Event Log</Description>
+            </Field>
+        </ConfigUI>
+        <States>
+            <State id="smappeeSolarExportedOnline">
+                <ValueType>Boolean</ValueType>
+                <TriggerLabel>Smappee Online</TriggerLabel>
+                <ControlPageLabel>Smappee Online</ControlPageLabel>
+            </State>
+            <State id="dailyTotalExportOnlyIncome">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>kWh Daily Total Exported Amount</TriggerLabel>
+                <ControlPageLabel>kWh Daily Total Exported Amount</ControlPageLabel>
+            </State>
+            <State id="kwhCurrentExportedPercentage">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>kWh Current Exported Percentage</TriggerLabel>
+                <ControlPageLabel>kWh Current Exported Percentage</ControlPageLabel>
+            </State>
+            <State id="kwhDailyTotalExportedPercentage">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>kWh Daily Total Exported Percentage</TriggerLabel>
+                <ControlPageLabel>kWh Daily Total Exported Percentage</ControlPageLabel>
+            </State>
+        </States>
+        <UiDisplayStateId>curEnergyLevel</UiDisplayStateId>
+    </Device>
+
+
+
+    <Device type="custom" id="smappeeSensor">
+        <Name>Sensor</Name>
+        <ConfigUI>
+            <Field id="serviceLocationId" type="textfield" readonly="YES" defaultValue="0000">
+                <Label>Service Location ID:</Label>
+            </Field>
+            <Field id="serviceLocationName" type="textfield" readonly="YES" defaultValue="">
+                <Label>Service Location Name:</Label>
+            </Field>
+
+            <Field type="checkbox" id="SupportsBatteryLevel" defaultValue="true" hidden="true"/>  
+            <Field type="checkbox" id="SupportsEnergyMeter" defaultValue="true" hidden="true" />
+
+            <Field type="checkbox" id="SupportsEnergyMeterCurPower" defaultValue="true" hidden="false">
+                <Label>Supports power load:</Label>
+                <Description>Show current useage in UI</Description>
+            </Field>
+            <Field type="menu" id="optionsEnergyMeterCurPower" defaultValue="last" hidden="false">
+                <Label>Options:</Label>
+                <List>
+                    <Option value="mean">Mean (average) of recorded values</Option>
+                    <Option value="minimum">Minimum recorded value</Option>
+                    <Option value="maximum">Maximum recorded value</Option>
+                    <Option value="last">Last recorded value</Option>
+                </List>
+            </Field>
+
+            <Field id="separator-1" type="separator"/>
+
+            <Field type="checkbox" id="hideEnergyMeterCurPower" defaultValue="false" hidden="false">
+                <Label>Current usage:</Label>
+                <Description>Hide current useage in Event Log</Description>
+            </Field>
+            <Field type="checkbox" id="hideEnergyMeterAccumPower" defaultValue="false" hidden="false">
+                <Label>Total usage:</Label>
+                <Description>Hide energy total in Event Log</Description>
+            </Field>
+            <Field id="separator-2" type="separator"/>  
+            <Field id="currencyCode" type="textfield" defaultValue="UKP" hidden="false">
+                <Label>Currency Code:</Label>
+            </Field>
+            <Field id="dailyStandingCharge" type="textfield" defaultValue="0.00" hidden="false">
+                <Label>Daily Standing Charge:</Label>
+            </Field>
+            <Field type="menu" id="units" defaultValue="kWh" hidden="false">
+                <Label>Units:</Label>
+                <List>
+                    <Option value="kWh">Kilowatt Hours</Option>
+                    <Option value="m3">Cubic Metres</Option>
+                    <Option value="ft3">Cubic Feet</Option>
+                    <Option value="litres">Litres</Option>
+                    <Option value="gallons">Gallons</Option>
+                </List>
+            </Field>
+            <Field id="pulsesPerUnit" type="textfield" defaultValue="100" hidden="false">
+                <Label>Pulses per Unit:</Label>
+            </Field>
+            <Field id="unitCost" type="textfield" defaultValue="0.00" hidden="false">
+                <Label>Unit Cost:</Label>
+            </Field>
+        </ConfigUI>
+        <States>
+            <State id="smappeeSensorOnline">
+                <ValueType>Boolean</ValueType>
+                <TriggerLabel>Smappee Online</TriggerLabel>
+                <ControlPageLabel>Smappee Online</ControlPageLabel>
+            </State>
+            <State id="readingsLastUpdated">
+                <ValueType>String</ValueType>
+                <TriggerLabel>Readings Last Updated</TriggerLabel>
+                <ControlPageLabel>Readings Last Updated</ControlPageLabel>
+            </State>
+            <State id="batteryLevel">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>Battery Level</TriggerLabel>
+                <ControlPageLabel>Battery Level</ControlPageLabel>
+            </State>
+            <State id="temperature">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>Temperature</TriggerLabel>
+                <ControlPageLabel>Temperature</ControlPageLabel>
+            </State>
+            <State id="humidity">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>Humidity</TriggerLabel>
+                <ControlPageLabel>Humidity</ControlPageLabel>
+            </State>
+            <State id="batteryLevelLastUpdated">
+                <ValueType>String</ValueType>
+                <TriggerLabel>Battery Level Last Updated</TriggerLabel>
+                <ControlPageLabel>Battery Level Last Updated</ControlPageLabel>
+            </State>
+            <State id="temperatureLastUpdated">
+                <ValueType>String</ValueType>
+                <TriggerLabel>Temperature Last Updated</TriggerLabel>
+                <ControlPageLabel>Temperature Last Updated</ControlPageLabel>
+            </State>
+            <State id="humidityLastUpdated">
+                <ValueType>String</ValueType>
+                <TriggerLabel>Humidity Last Updated</TriggerLabel>
+                <ControlPageLabel>Humidity Last Updated</ControlPageLabel>
+            </State>
+            <State id="dailyTotalCost">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>Daily Total Cost</TriggerLabel>
+                <ControlPageLabel>Daily Total Cost</ControlPageLabel>
+            </State>
+       </States>
+        <UiDisplayStateId>curEnergyLevel</UiDisplayStateId>
+    </Device>
+
+
+    <Device type="custom" id="smappeeAppliance">
+        <Name>Smappee Appliance</Name>
+        <ConfigUI>
+            <Field id="serviceLocationId" type="textfield" readonly="YES" defaultValue="">
+                <Label>Service Location ID:</Label>
+            </Field>
+            <Field id="serviceLocationName" type="textfield" readonly="YES" defaultValue="">
+                <Label>Service Location Name:</Label>
+            </Field>
+            <Field id="separator-1" type="separator"/>  
+            <Field type="checkbox" id="SupportsEnergyMeter" defaultValue="true" hidden="true" />
+            <Field type="checkbox" id="SupportsEnergyMeterCurPower" defaultValue="true" hidden="false">
+                <Label>Supports power load:</Label>
+                <Description>Show current power load (Watts) in UI</Description>
+            </Field>
+            <Field type="checkbox" id="showApplianceEventStatus" defaultValue="true" hidden="false">
+                <Label>Event status:</Label>
+                <Description>Show Appliance event status</Description>
+            </Field>
+            <Field type="checkbox" id="hideApplianceSmappeeEvents" defaultValue="false" hidden="false">
+                <Label>Event Log:</Label>
+                <Description>Hide Appliance Smappee events in Event Log</Description>
+            </Field>
+        </ConfigUI>
+        <States>
+            <State id="smappeeApplianceEventStatus">
+                <ValueType>
+                    <List>
+                        <Option value="NONE">No Events Detected</Option>
+                        <Option value="UP">Event kWh Increase Detected</Option>
+                        <Option value="DOWN">Event kWh Decrease Detected</Option>
+                        <Option value="Stopped">Appliance Stopped</Option>                        
+                    </List>
+                </ValueType>
+                <TriggerLabel>Smappee Appliance Event Status</TriggerLabel>
+                <ControlPageLabel>Smappee Appliance Event Status</ControlPageLabel>
+            </State>
+            <State id="smappeeApplianceEventLastRecordedTimestamp">
+                <ValueType>Number</ValueType>
+                <TriggerLabel>Smappee Last Event Recorded</TriggerLabel>
+                <ControlPageLabel>Smappee Last Event Recorded</ControlPageLabel>
+            </State>
+        </States>
+        <UiDisplayStateId>smappeeApplianceEventStatus</UiDisplayStateId>
+    </Device>
+
+    <Device type="relay" id="smappeeActuator">
+        <Name>Smappee Actuator</Name>
+        <ConfigUI>
+            <Field id="serviceLocationId" type="textfield" readonly="YES" defaultValue="">
+                <Label>Service Location ID:</Label>
+            </Field>
+            <Field id="serviceLocationName" type="textfield" readonly="YES" defaultValue="">
+                <Label>Service Location Name:</Label>
+            </Field>
+        </ConfigUI>
+        <States>
+        </States>
+    </Device>
+
+ 
+
+</Devices>

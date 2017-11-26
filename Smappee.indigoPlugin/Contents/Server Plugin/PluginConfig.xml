@@ -1,0 +1,88 @@
+<?xml version="1.0"?>
+<PluginConfig>
+    <SupportURL>http://forums.indigodomo.com/viewforum.php?f=156</SupportURL>
+    <Field id="description" type="label">
+        <Label>This Plugin interacts with a Smappee Monitor. 😄</Label>
+    </Field>
+    <Field id="copyright" type="label">
+        <Label>Copyright © 2016 Autolog</Label>
+    </Field>
+
+    <Field id="separator-1" type="separator"/>
+
+    <Field id="smappeeAddress" type="textfield" defaultValue="https://app1pub.smappee.net/dev/v1/servicelocation" readonly="true">
+        <Label>Address:</Label>
+    </Field>
+    <Field id="smappeeClientId" type="textfield" defaultValue="">
+        <Label>Client ID:</Label>
+    </Field>
+    <Field id="smappeeSecret" type="textfield" defaultValue="" secure="true">
+        <Label>Secret:</Label>
+    </Field>
+    <Field id="smappeeUserName" type="textfield" defaultValue="">
+        <Label>User Name:</Label>
+    </Field>
+    <Field id="smappeePassword" type="textfield" defaultValue="" secure="true">
+        <Label>Password:</Label>
+    </Field>
+
+    <Field id="separator-3" type="separator"/>  
+
+    <Field id="help-1" type="label">
+        <Label>Use status polling to update the state of Smappee periodically.</Label>
+    </Field>
+    <Field type="checkbox" id="statusPolling" defaultValue="false" tooltip="Tick to turn on Smappee polling">
+        <Label>Status polling:</Label>
+        <Description>Enable Smappee polling.</Description>
+
+    </Field>
+    <Field id="pollingSeconds" type="menu" defaultValue="300" enabledBindingId="statusPolling" tooltip="Select polling interval">
+        <Label>Poll Smappee:</Label>
+        <List>
+            <Option value="300">Every 5 minutes</Option>
+            <Option value="600">Every 10 minute</Option>
+            <Option value="900">Every 15 minute</Option>
+            <Option value="1200">Every 20 minute</Option>
+            <Option value="1800">Every 30 minutes</Option>
+            <Option value="3600">Every hour</Option>
+        </List>
+    </Field>
+
+    <Field id="separator-4" type="separator"/>  
+
+    <Field type="checkbox" id="debugShow" default="false">
+        <Label>Show logging Options:</Label>
+        <Description>Show debugging and logging options.</Description>
+    </Field>
+    <Field id="separator-5" type="separator" visibleBindingId="debugShow" visibleBindingValue="true"/> 
+    <Field id="logging" type="label" fontSize="small" fontColor="blue" visibleBindingId="debugShow" visibleBindingValue="true">
+        <Label>Debug logging is done to a file independant of the Indigo Event log. The debug log files are rotated and a maximum of 5 days logs are retained.</Label>
+    </Field>
+    <Field id="debugFolder" type="textfield" defaultValue="/Library/Application Support" visibleBindingId="debugShow" visibleBindingValue="true">
+        <Label>Debug logging folder:</Label>
+    </Field>
+    <Field id="debugFolderHelp" type="label" readonly="true" fontSize="small" fontColor="blue" visibleBindingId="debugShow" visibleBindingValue="true">
+        <Label>Specify full path to a folder that can be used by the plugin to create an 'autolog/smappee/debug' folder hierarchy for a debugging log file set (defaults to '/Library/Application Support') which will result in a folder '/Library/Application Support/autolog/smappee/debug' being created.</Label>
+    </Field>
+    <Field type="checkbox" id="debugDetailed" defaultValue="false"  visibleBindingId="debugShow" visibleBindingValue="true" tooltip="Enable logging of detailed debugging info.">
+        <Label>Detailed:</Label>
+        <Description>Enable logging of detailed debugging info.</Description>
+    </Field>
+    <Field type="checkbox" id="debugDeviceFactory" defaultValue="false"  visibleBindingId="debugShow" visibleBindingValue="true" tooltip="Enable logging of device factory debugging info.">
+        <Label>Device Factory:</Label>
+        <Description>Enable logging of device factory debugging info.</Description>
+    </Field>
+    <Field type="checkbox" id="debugInterface" defaultValue="false"  visibleBindingId="debugShow" visibleBindingValue="true" tooltip="Enable logging of replies from Smappee.">
+        <Label>Monitor Interface:</Label>
+        <Description>Enable logging of replies from Smappee.</Description>
+    </Field>
+    <Field type="checkbox" id="debugMethodTrace" default="false" visibleBindingId="debugShow" visibleBindingValue="true">
+        <Label>Method Trace:</Label>
+        <Description>Enable Method trace logging.</Description>
+    </Field>
+    <Field type="checkbox" id="debugPolling" default="false"  visibleBindingId="debugShow" visibleBindingValue="true" tooltip="Enable debugging of device polling.">
+        <Label>Polling:</Label>
+        <Description>Enable debugging of device polling.</Description>
+    </Field>
+
+</PluginConfig>

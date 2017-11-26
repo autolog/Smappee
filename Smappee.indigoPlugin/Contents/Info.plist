@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>PluginVersion</key>
+	<string>2.1.2</string>
+	<key>ServerApiVersion</key>
+	<string>1.4</string>
+	<key>IwsApiVersion</key>
+	<string>1.0.0</string>
+	<key>CFBundleDisplayName</key>
+	<string>Smappee</string>
+	<key>CFBundleName</key>
+	<string>Smappee</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.autologplugin.indigoplugin.smappeecontroller</string>
+	<key>CFBundleVersion</key>
+	<string>1.0.0</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>http://forums.indigodomo.com/viewforum.php?f=156</string>
+		</dict>
+	</array>
+</dict>
+</plist>
