@@ -26,7 +26,7 @@
         <Label>Password:</Label>
     </Field>
 
-    <Field id="separator-3" type="separator"/>  
+    <Field id="separator-2" type="separator"/>  
 
     <Field id="help-1" type="label">
         <Label>Use status polling to update the state of Smappee periodically.</Label>
@@ -48,41 +48,54 @@
         </List>
     </Field>
 
-    <Field id="separator-4" type="separator"/>  
+    <Field id="separator-3" type="separator"/>  
+    <Field id="help-2" type="label">
+        <Label>Use Update Check to check for a new release of the Smappee plugin on Github. Use plugin menu to update plugin.</Label>
+    </Field>
+    <Field type="checkbox" id="updateCheck" defaultValue="true" tooltip="Tick to turn on checking for new LIFX plugin version">
+        <Label>Check for updates:</Label>
+        <Description>Enable to check for new version of LIFX plugin.</Description>
+    </Field>
+    <Field id="checkFrequency" type="menu" defaultValue="DAILY" enabledBindingId="updateCheck" tooltip="Select update check frequency">
+        <Label>Check Frequency:</Label>
+        <List>
+            <Option value="DAILY">Check every day</Option>
+            <Option value="WEEKLY">Check every week</Option>
+        </List>
+    </Field>
+    <Field id="separator-4" type="separator"/>
+    <Field id="help-3" type="label">
+        <Label>Specify the Indigo device folder in which to create Smappee devices. Leave empty if device folder not required.</Label>
+    </Field>
+    <Field id="smappeeDeviceFolder" type="textfield" defaultValue="SMAPPEE">
+        <Label>Device Folder:</Label>
+    </Field>
+    <Field id="separator-5" type="separator"/>  
 
-    <Field type="checkbox" id="debugShow" default="false">
-        <Label>Show logging Options:</Label>
-        <Description>Show debugging and logging options.</Description>
+    <Field type="checkbox" id="debugEnabled" default="false">
+        <Label>Debugging:</Label>
+        <Description>Enable debugging options.</Description>
     </Field>
-    <Field id="separator-5" type="separator" visibleBindingId="debugShow" visibleBindingValue="true"/> 
-    <Field id="logging" type="label" fontSize="small" fontColor="blue" visibleBindingId="debugShow" visibleBindingValue="true">
-        <Label>Debug logging is done to a file independant of the Indigo Event log. The debug log files are rotated and a maximum of 5 days logs are retained.</Label>
+
+    <Field type="checkbox" id="debugGeneral" defaultValue="false"  visibleBindingId="debugEnabled" visibleBindingValue="true" tooltip="Enable general debugging.">
+        <Label>General:</Label>
+        <Description>Enable general debugging info.</Description>
     </Field>
-    <Field id="debugFolder" type="textfield" defaultValue="/Library/Application Support" visibleBindingId="debugShow" visibleBindingValue="true">
-        <Label>Debug logging folder:</Label>
-    </Field>
-    <Field id="debugFolderHelp" type="label" readonly="true" fontSize="small" fontColor="blue" visibleBindingId="debugShow" visibleBindingValue="true">
-        <Label>Specify full path to a folder that can be used by the plugin to create an 'autolog/smappee/debug' folder hierarchy for a debugging log file set (defaults to '/Library/Application Support') which will result in a folder '/Library/Application Support/autolog/smappee/debug' being created.</Label>
-    </Field>
-    <Field type="checkbox" id="debugDetailed" defaultValue="false"  visibleBindingId="debugShow" visibleBindingValue="true" tooltip="Enable logging of detailed debugging info.">
-        <Label>Detailed:</Label>
-        <Description>Enable logging of detailed debugging info.</Description>
-    </Field>
-    <Field type="checkbox" id="debugDeviceFactory" defaultValue="false"  visibleBindingId="debugShow" visibleBindingValue="true" tooltip="Enable logging of device factory debugging info.">
+    <Field type="checkbox" id="debugDeviceFactory" defaultValue="false"  visibleBindingId="debugEnabled" visibleBindingValue="true" tooltip="Enable debugging of device factory processing.">
         <Label>Device Factory:</Label>
-        <Description>Enable logging of device factory debugging info.</Description>
+        <Description>Enable debugging of device factory processing.</Description>
     </Field>
-    <Field type="checkbox" id="debugInterface" defaultValue="false"  visibleBindingId="debugShow" visibleBindingValue="true" tooltip="Enable logging of replies from Smappee.">
-        <Label>Monitor Interface:</Label>
-        <Description>Enable logging of replies from Smappee.</Description>
+    <Field type="checkbox" id="debugSmappeeInterface" defaultValue="false"  visibleBindingId="debugEnabled" visibleBindingValue="true" tooltip="Enable debugging of Smappee interface.">
+        <Label>Smappee Interface:</Label>
+        <Description>Enable debugging of Smappee interface.</Description>
     </Field>
-    <Field type="checkbox" id="debugMethodTrace" default="false" visibleBindingId="debugShow" visibleBindingValue="true">
+    <Field type="checkbox" id="debugMethodTrace" default="false" visibleBindingId="debugEnabled" visibleBindingValue="true">
         <Label>Method Trace:</Label>
         <Description>Enable Method trace logging.</Description>
     </Field>
-    <Field type="checkbox" id="debugPolling" default="false"  visibleBindingId="debugShow" visibleBindingValue="true" tooltip="Enable debugging of device polling.">
+    <Field type="checkbox" id="debugPolling" default="false"  visibleBindingId="debugEnabled" visibleBindingValue="true" tooltip="Enable debugging of Smappee polling.">
         <Label>Polling:</Label>
-        <Description>Enable debugging of device polling.</Description>
+        <Description>Enable debugging of Smappee polling.</Description>
     </Field>
 
 </PluginConfig>

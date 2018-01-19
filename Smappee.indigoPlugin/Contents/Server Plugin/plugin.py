@@ -1,823 +1,489 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# Smappee Controller © Autolog 2016
-# & 
-# copyright (c) 2016, Perceptive Automation, LLC. All rights reserved.
-# http://www.indigodomo.com
-#
+# Smappee Controller © Autolog 2018
+# 
+
+try:
+    import indigo
+except ImportError, e:
+    pass
+
 import collections  # Used for creating sensor testdata
 import datetime
-import errno
-import inspect
-import math
-import locale
-import logging
-from logging.handlers import TimedRotatingFileHandler
-import operator
-import os
-from Queue import Queue as autologQueue
-from Queue import Empty as autologQueueEmpty
-import select
-import signal
 import simplejson as json
-import sqlite3 as sql3
-import subprocess
+import logging
+import Queue
+# import sqlite3 as sql3
 import sys
 import threading
 import time
-import traceback
 
-pluginGlobal = {}
+from ghpu import GitHubPluginUpdater
+from polling import ThreadPolling
+from smappeeInterface import ThreadSmappeeInterface
 
-pluginGlobal['plugin'] = {}  # Info about the plugin filled in by Plugin Start
 
-pluginGlobal['TESTING'] = False
-
-pluginGlobal['SQL']                = {}
-pluginGlobal['SQL']['enabled']     = True
-pluginGlobal['SQL']['db']          = '/Users/admin/Documents/Autolog/sqlite/smappee.db'
-pluginGlobal['SQL']['dbType']      = 'sqlite3'
-pluginGlobal['SQL']['connection']  = ''
-pluginGlobal['SQL']['cursor']      = ''
-
-pluginGlobal['autologger'] = ''
-
-if pluginGlobal['TESTING'] == True:
-    pluginGlobal['testdata'] = {}
-    pluginGlobal['testdata']['temperature'] = collections.deque(['255','252','250','249','247','246','220','223','221','198','195','192'])
-    pluginGlobal['testdata']['humidity'] = collections.deque(['90','85','80','75','70','65','60','55','50','45','40','35'])
-    pluginGlobal['testdata']['batteryLevel'] = collections.deque(['100','99','98','97','95','94','93','92','91','90','89','88'])
-    pluginGlobal['testdata']['value1'] = collections.deque(['0','800','400','0','800','800','1200','100','0','0','1000','700'])
-    pluginGlobal['testdata']['value2'] = collections.deque(['50','50','0','0','0','0','400','0','0','0','50','70'])
-
-
-pluginGlobal['unitTable'] = {}
-
-pluginGlobal['unitTable']['default'] = {}
-pluginGlobal['unitTable']['default']['measurementTimeMultiplier'] = 12.0  # 'hourly' = 12, '5 minutes' = 1'
-pluginGlobal['unitTable']['default']['formatTotaldivisor'] = 1000.0
-pluginGlobal['unitTable']['default']['formatCurrent'] = "%d"
-pluginGlobal['unitTable']['default']['formatTotal'] = "%3.0f"
-pluginGlobal['unitTable']['default']['currentUnits'] = 'watts [E]'                               
-pluginGlobal['unitTable']['default']['currentUnitsRate'] = 'watt [E] hours'
-pluginGlobal['unitTable']['default']['accumUnits'] = 'kWh [E]'
-
-pluginGlobal['unitTable']['kWh'] = {}
-pluginGlobal['unitTable']['kWh']['measurementTimeMultiplier'] = 12.0  # 'hourly' = 12, '5 minutes' = 1'
-pluginGlobal['unitTable']['kWh']['formatTotaldivisor'] = 1000.0
-pluginGlobal['unitTable']['kWh']['formatCurrentDivisor'] = 1000.0
-pluginGlobal['unitTable']['kWh']['formatCurrent'] = "%d"
-pluginGlobal['unitTable']['kWh']['formatTotal'] = "%3.0f"
-pluginGlobal['unitTable']['kWh']['currentUnits'] = 'watts'                               
-pluginGlobal['unitTable']['kWh']['currentUnitsRate'] = 'watt hours'
-pluginGlobal['unitTable']['kWh']['accumUnits'] = 'kWh'
-
-pluginGlobal['unitTable']['litres'] = {}
-pluginGlobal['unitTable']['litres']['measurementTimeMultiplier'] = 1.0  # 'hourly' = 12, '5 minutes' = 1'
-pluginGlobal['unitTable']['litres']['formatTotaldivisor'] = 1.0
-pluginGlobal['unitTable']['litres']['formatCurrent'] = "%d"
-pluginGlobal['unitTable']['litres']['formatTotal'] = "%d"
-pluginGlobal['unitTable']['litres']['currentUnits'] = 'litres'                               
-pluginGlobal['unitTable']['litres']['accumUnits'] = 'litres'
-
-pluginGlobal['unitTable']['m3'] = {}
-pluginGlobal['unitTable']['m3']['measurementTimeMultiplier'] = 1.0  # 'hourly' = 12, '5 minutes' = 1'
-pluginGlobal['unitTable']['m3']['formatTotaldivisor'] = 1.0
-pluginGlobal['unitTable']['m3']['formatCurrent'] = "%d"
-pluginGlobal['unitTable']['m3']['formatTotal'] = "%d"
-pluginGlobal['unitTable']['m3']['currentUnits'] = 'cubic metres'                               
-pluginGlobal['unitTable']['m3']['accumUnits'] = 'cubic metres'
-
-pluginGlobal['unitTable']['ft3'] = {}
-pluginGlobal['unitTable']['ft3']['measurementTimeMultiplier'] = 1.0  # 'hourly' = 12, '5 minutes' = 1'
-pluginGlobal['unitTable']['ft3']['formatTotaldivisor'] = 1.0
-pluginGlobal['unitTable']['ft3']['formatCurrent'] = "%d"
-pluginGlobal['unitTable']['ft3']['formatTotal'] = "%d"
-pluginGlobal['unitTable']['ft3']['currentUnits'] = 'cubic feet'                               
-pluginGlobal['unitTable']['ft3']['accumUnits'] = 'cubic feet'
-
-pluginGlobal['unitTable']['gallons'] = {}
-pluginGlobal['unitTable']['gallons']['measurementTimeMultiplier'] = 1.0  # 'hourly' = 12, '5 minutes' = 1'
-pluginGlobal['unitTable']['gallons']['formatTotaldivisor'] = 1.0
-pluginGlobal['unitTable']['gallons']['formatCurrent'] = "%d"
-pluginGlobal['unitTable']['gallons']['formatTotal'] = "%d"
-pluginGlobal['unitTable']['gallons']['currentUnits'] = 'gallons'                               
-pluginGlobal['unitTable']['gallons']['accumUnits'] = 'gallons'                               
-
-
-pluginGlobal['config'] = {}
-pluginGlobal['config']['address'] = ''
-pluginGlobal['config']['clientId'] = ''
-pluginGlobal['config']['secret'] = ''
-pluginGlobal['config']['userName'] = ''
-pluginGlobal['config']['password'] = ''
-
-pluginGlobal['config']['appName'] = ''  # Not sure what this is for! Name provided by Get ServiceLocations Smappee call
-
-pluginGlobal['config']['accessToken'] = ''
-pluginGlobal['config']['refreshToken'] = ''
-pluginGlobal['config']['tokenExpiresIn'] = 0
-pluginGlobal['config']['tokenExpiresDateTimeUtc'] = 0
-
-
-pluginGlobal['config']['supportsElectricity'] = False
-pluginGlobal['config']['supportsElectricityNet'] = False
-pluginGlobal['config']['supportsElectricitySaved'] = False
-pluginGlobal['config']['supportsSolar'] = False
-pluginGlobal['config']['supportsSolarUsed'] = False
-pluginGlobal['config']['supportsSolarExported'] = False
-pluginGlobal['config']['supportsSensor'] = False
-
-# Initialise Global arrays to store internal details about Smappees, Smappee Appliances & Plugs
-pluginGlobal['pluginInitialised'] = False
-pluginGlobal['consumptionDataReceived'] = False  # Used to signify it is now OK to get Events
-pluginGlobal['smappeeServiceLocationIdToDevId'] = {}  # Used to derive Smappee Device Ids from Smappee Service Location Ids
-pluginGlobal['smappees'] = {}
-pluginGlobal['smappeeAppliances'] = {}
-pluginGlobal['smappeePlugs'] = {}
-
-pluginGlobal['deviceFolderId'] = 0
-pluginGlobal['variableFolderId'] = 0
-
-pluginGlobal['polling'] = {}
-pluginGlobal['polling']['status'] = False
-pluginGlobal['polling']['seconds'] = float(300.0)  # 5 minutes
-pluginGlobal['polling']['threadEnd'] = False
-
-pluginGlobal['debug'] = {}
-pluginGlobal['debug']['initialised']   = False  # Indicates whether the logging has been initialised and logging can be performed
-pluginGlobal['debug']['active']        = False  # if False it indicates no debugging is active else it indicates that at least one type of debug is active
-pluginGlobal['debug']['detailed']      = False  # For detailed debugging
-pluginGlobal['debug']['interface']     = False  # For logging commands sent to and received from the Smappee interface 
-pluginGlobal['debug']['polling']       = False  # For polling debugging
-pluginGlobal['debug']['deviceFactory'] = False  # For device factory debugging
-pluginGlobal['debug']['methodTrace']   = False  # For displaying method invocations i.e. trace method
-
-methodNameForTrace = lambda: inspect.stack()[1][3]
-
-
-# Logging Types
-FACTORY   = 1   # FAC
-DETAIL    = 2   # DET
-ERROR     = 3   # ERR
-INFO      = 4   # INF
-POLLING   = 5   # POL
-METHOD    = 6   # MET
-INTERFACE = 7   # INT 
-
-def autolog(logType, message):
-    global pluginGlobal
-
-    if pluginGlobal['debug']['initialised'] == False:
-        if logType == INFO: 
-            indigo.server.log(message)
-        elif logType == ERROR:
-            indigo.server.log(message, isError=True)
-        return
-
-    if logType == INFO:
-        logTime = datetime.datetime.now().strftime("%H:%M:%S")
-        pluginGlobal['autologger'].info(str('%s [INF]: %s' %(logTime, message)))
-        indigo.server.log(message)
-        return
-    elif logType == ERROR:
-        logTime = datetime.datetime.now().strftime("%H:%M:%S")
-        pluginGlobal['autologger'].info(str('%s [ERR]: %s' %(logTime, message)))
-        indigo.server.log(message, isError=True)
-        return
-    else:
-        if pluginGlobal['debug']['active']  == False:
-            return
-
-    logTime = datetime.datetime.now().strftime("%H:%M:%S")
-        
-    if logType == DETAIL:
-        if pluginGlobal['debug']['detailed']  == True:
-            pluginGlobal['autologger'].info(str('%s [DET]: %s' %(logTime, message)))
-    elif logType == FACTORY:
-        if pluginGlobal['debug']['deviceFactory']  == True:
-            pluginGlobal['autologger'].info(str('%s [FAC]: %s' %(logTime, message)))
-    elif logType == INTERFACE:
-        if pluginGlobal['debug']['interface']  == True:
-            pluginGlobal['autologger'].info(str('%s [INT]: %s' %(logTime, message)))
-    elif logType == METHOD:
-        if pluginGlobal['debug']['methodTrace']  == True:
-            pluginGlobal['autologger'].info(str('%s [MTH]: %s' %(logTime, message)))
-    elif logType == POLLING:
-        if pluginGlobal['debug']['polling']  == True:
-            pluginGlobal['autologger'].info(str('%s [POL]: %s' %(logTime, message)))
-    else:
-        indigo.server.log(u'AUTOLOG LOGGING - INVALID TYPE: %s' % (logType), isError=True)
-        indigo.server.log(message, isError=True)
-
-
-
-class ThreadPolling(threading.Thread):
-
-    def __init__(self, event, commandToSendqueue):
-
-        threading.Thread.__init__(self)
-
-        global pluginGlobal
-
-        self.pollStop = event
-        self.sendQueue = commandToSendqueue
-
-        self.Testing123 = 'ABC'
-
-        autolog(POLLING, u"Initialising Polling thread to poll at %f second intervals" % (pluginGlobal['polling']['seconds']))
-
-
-    def run(self):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
-
-        try:
-            autolog(POLLING, u"Polling thread running")  
-
-            time.sleep(5)  # Wait 5 seconds before commencing polling - gives plugin time to start                        "
-
-            autolog(POLLING, u"smappeeServiceLocationIdToDevId = %s" % (pluginGlobal['smappeeServiceLocationIdToDevId']))
-            for serviceLocationId, serviceLocationDetails in pluginGlobal['smappeeServiceLocationIdToDevId'].iteritems():
-                self.sendQueue.put(["GET_CONSUMPTION",str(serviceLocationId)])  # 1st time
-                self.sendQueue.put(["GET_EVENTS",str(serviceLocationId)])  # 1st time
-                self.sendQueue.put(["GET_SENSOR_CONSUMPTION",str(serviceLocationId)])  # 1st time
-
-            while not self.pollStop.wait(pluginGlobal['polling']['seconds']):
-                if self.pollStop.isSet():
-                    if pluginGlobal['polling']['threadEnd'] == True:
-                        break
-                    else:
-                        self.pollStop.clear()
-                autolog(POLLING, u"Now polling at %f second intervals" % (pluginGlobal['polling']['seconds']))
-
-                for serviceLocationId, serviceLocationDetails in pluginGlobal['smappeeServiceLocationIdToDevId'].iteritems():
-                    self.sendQueue.put(["GET_CONSUMPTION",str(serviceLocationId)])
-                    self.sendQueue.put(["GET_EVENTS",str(serviceLocationId)])
-                    self.sendQueue.put(["GET_SENSOR_CONSUMPTION",str(serviceLocationId)])
-
-        except StandardError, e:
-            autolog(ERROR, u"StandardError detected in Smappee Polling Thread. Line '%s' has error='%s'" % (sys.exc_traceback.tb_lineno, e))   
-
-
-        autolog(POLLING, u"Polling thread ending")
-
-
-class ThreadInteractWithSmappee(threading.Thread):
-
-    # This class controls the sending of commands to Smappee and handles its response.
-    # It receives high level commands to send to Smappee from a queue which it waits on
-    #   and queues replies for handling by the runConcurrent thread
-
-    # It contains the logic for correctly formatting the the high level commands into the specific formats
-    #   required by Smappee. This keeps all the Smappee specific logic in one place.
-
-    def __init__(self, commandToSendqueue, responseToReturnQueue):
-
-        threading.Thread.__init__(self)
-        self.sendQueue = commandToSendqueue
-        self.returnQueue = responseToReturnQueue
-
-        autolog(INTERFACE, u"Initialising Smappee Command thread")  
-
-
-    def convertUnicode(self, input):
-        if isinstance(input, dict):
-            return dict([(self.convertUnicode(key), self.convertUnicode(value)) for key, value in input.iteritems()])
-        elif isinstance(input, list):
-            return [self.convertUnicode(element) for element in input]
-        elif isinstance(input, unicode):
-            return input.encode('utf-8')
-        else:
-            return input
-
-  
-    def run(self):
-        global pluginGlobal
-        autolog(METHOD, u"ThreadInteractWithSmappee; %s" %  (methodNameForTrace()))  
- 
-        try:
-            autolog(INTERFACE, u"Smappee Command Thread initialised.")
-            keepThreadActive = True    
-            while keepThreadActive:
-
-                try:
-                    commandToSend = self.sendQueue.get(True,5)
-                    autolog(INTERFACE, u"Command to send to Smappee [Type=%s]: %s" % (type(commandToSend),commandToSend))
-
-                    smappeeCommand = commandToSend[0]
-
-                    if smappeeCommand == 'ENDTHREAD':
-                        keepThreadActive = False 
-
-                    elif smappeeCommand == 'GET_CONSUMPTION' or smappeeCommand == 'RESET_CONSUMPTION':
-
-                        try:
-                            self.serviceLocationId  = commandToSend[1]
-                            self.electricityId      = int(pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricityId'])
-                            self.electricityNetId   = int(pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricityNetId']) 
-                            self.electricitySavedId = int(pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricitySavedId'])
-                            self.solarId            = int(pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['solarId'])
-                            self.solarUsedId        = int(pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['solarUsedId'])
-                            self.solarExportedId    = int(pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['solarExportedId'])
-                        except Exception, e:
-                            autolog(ERROR, u"Debugging Error detected in Smappee Command Thread. Line '%s' has error='%s'" % (sys.exc_traceback.tb_lineno, e))   
-
-                        if self.electricityId == 0 and self.solarId == 0:
-                            pass
-                            autolog(INTERFACE, u"%s - Smappee Base Devices [ELECTRICITY and SOLAR PV] not defined" % (smappeeCommand))
-                        else:
-                            autolog(INTERFACE, u"%s - GET_CONSUMPTION - smappeeServiceLocationIdToDevId = [%s]" % (smappeeCommand, pluginGlobal['smappeeServiceLocationIdToDevId']))
-
-                            self.currentTimeUtc = time.mktime(indigo.server.getTime().timetuple())
-                            self.currentTimeDay = int(datetime.datetime.fromtimestamp(self.currentTimeUtc).strftime('%j'))
-                            autolog(INTERFACE, u"%s - self.currentTimeUtc[%s]=[%s], DAY=[%s]" % (smappeeCommand, type(self.currentTimeUtc), self.currentTimeUtc, self.currentTimeDay))
-
-                            if self.electricityId != 0:
-                                devElectricity = indigo.devices[self.electricityId]
-
-                                autolog(INTERFACE, u"%s - lastReadingElectricityUtc[%s] =[%s]" % (smappeeCommand, type(pluginGlobal['smappees'][devElectricity.id]['lastReadingElectricityUtc']), pluginGlobal['smappees'][devElectricity.id]['lastReadingElectricityUtc']))
-                                self.lastReadingElectricityDay = int(datetime.datetime.fromtimestamp(float(pluginGlobal['smappees'][devElectricity.id]['lastReadingElectricityUtc']/1000)).strftime('%j'))
-
-                                autolog(INTERFACE, u"%s - lastReadingElectricityDay=[%s] vs currentTimeDay=[%s]" % (smappeeCommand, self.lastReadingElectricityDay, self.currentTimeDay))
-
-                                if pluginGlobal['smappees'][devElectricity.id]['lastReadingElectricityUtc'] > 0 and self.lastReadingElectricityDay == self.currentTimeDay and smappeeCommand != 'RESET_CONSUMPTION':
-                                    self.fromTimeElectricityUtc = str(int(pluginGlobal['smappees'][devElectricity.id]['lastReadingElectricityUtc']))
-                                else:
-                                    self.fromTimeElectricityUtc = str("%s001" % (int(time.mktime(datetime.datetime.combine(datetime.date.today(), datetime.time()).timetuple()))))
-                                    pluginGlobal['smappees'][devElectricity.id]['lastReadingElectricityUtc'] = float(float(self.fromTimeElectricityUtc) - 1.0)
-                                    if "accumEnergyTotal" in devElectricity.states:
-                                        kwh = 0.0
-                                        kwhStr = "%0.3f kWh" % (kwh)
-                                        autolog(INFO, u"reset '%s' electricity total to 0.0" % (devElectricity.name))
-                                        kwhReformatted = float(str("%0.3f" % (kwh)))
-                                        devElectricity.updateStateOnServer("accumEnergyTotal", kwhReformatted, uiValue=kwhStr)
-
-                            if self.electricityNetId != 0:
-                                devElectricityNet = indigo.devices[self.electricityNetId]
-
-                                autolog(INTERFACE, u"%s - lastReadingElectricityNetUtc[%s] =[%s]" % (smappeeCommand, type(pluginGlobal['smappees'][devElectricityNet.id]['lastReadingElectricityNetUtc']), pluginGlobal['smappees'][devElectricityNet.id]['lastReadingElectricityNetUtc']))
-                                self.lastReadingElectricityNetDay = int(datetime.datetime.fromtimestamp(float(pluginGlobal['smappees'][devElectricityNet.id]['lastReadingElectricityNetUtc']/1000)).strftime('%j'))
-
-                                autolog(INTERFACE, u"%s - lastReadingElectricityNetDay=[%s] vs currentTimeDay=[%s]" % (smappeeCommand, self.lastReadingElectricityNetDay, self.currentTimeDay))
-
-                                if pluginGlobal['smappees'][devElectricityNet.id]['lastReadingElectricityNetUtc'] > 0 and self.lastReadingElectricityNetDay == self.currentTimeDay and smappeeCommand != 'RESET_CONSUMPTION':
-                                    self.fromTimeElectricityNetUtc = str(int(pluginGlobal['smappees'][devElectricityNet.id]['lastReadingElectricityNetUtc']))
-                                else:
-                                    self.fromTimeElectricityNetUtc = str("%s001" % (int(time.mktime(datetime.datetime.combine(datetime.date.today(), datetime.time()).timetuple()))))
-                                    pluginGlobal['smappees'][devElectricityNet.id]['lastReadingElectricityNetUtc'] = float(float(self.fromTimeElectricityNetUtc) - 1.0)
-                                    if "accumEnergyTotal" in devElectricityNet.states:
-                                        kwh = 0.0
-                                        kwhStr = str("%0.3f kWh" % (kwh))
-                                        autolog(INFO, u"reset '%s' electricity net total to 0.0" % (devElectricityNet.name))
-                                        kwhReformatted = float(str("%0.3f" % (kwh)))
-                                        devElectricityNet.updateStateOnServer("accumEnergyTotal", kwhReformatted, uiValue=kwhStr)
-
-                            if self.electricitySavedId != 0:
-                                devElectricitySaved = indigo.devices[self.electricitySavedId]
-
-                                autolog(INTERFACE, u"%s - lastReadingElectricitySavedUtc[%s] =[%s]" % (smappeeCommand, type(pluginGlobal['smappees'][devElectricitySaved.id]['lastReadingElectricitySavedUtc']), pluginGlobal['smappees'][devElectricitySaved.id]['lastReadingElectricitySavedUtc']))
-                                self.lastReadingElectricitySavedDay = int(datetime.datetime.fromtimestamp(float(pluginGlobal['smappees'][devElectricitySaved.id]['lastReadingElectricitySavedUtc']/1000)).strftime('%j'))
-
-                                autolog(INTERFACE, u"%s - lastReadingElectricitySavedDay=[%s] vs currentTimeDay=[%s]" % (smappeeCommand, self.lastReadingElectricitySavedDay, self.currentTimeDay))
-
-                                if pluginGlobal['smappees'][devElectricitySaved.id]['lastReadingElectricitySavedUtc'] > 0 and self.lastReadingElectricitySavedDay == self.currentTimeDay and smappeeCommand != 'RESET_CONSUMPTION':
-                                    self.fromTimeElectricitySavedUtc = str(int(pluginGlobal['smappees'][devElectricitySaved.id]['lastReadingElectricitySavedUtc']))
-                                else:
-                                    self.fromTimeElectricitySavedUtc = str("%s001" % (int(time.mktime(datetime.datetime.combine(datetime.date.today(), datetime.time()).timetuple()))))
-                                    pluginGlobal['smappees'][devElectricitySaved.id]['lastReadingElectricitySavedUtc'] = float(float(self.fromTimeElectricitySavedUtc) - 1.0)
-                                    if "accumEnergyTotal" in devElectricitySaved.states:
-                                        kwh = 0.0
-                                        kwhStr = str("%0.3f kWh" % (kwh))
-                                        autolog(INFO, u"reset '%s' electricity Saved total to 0.0" % (devElectricitySaved.name))
-                                        kwhReformatted = float(str("%0.3f" % (kwh)))
-                                        devElectricitySaved.updateStateOnServer("accumEnergyTotal", kwhReformatted, uiValue=kwhStr)
-
-                            if self.solarId != 0:
-                                devSolar = indigo.devices[self.solarId]
-
-                                autolog(INTERFACE, u"%s - lastReadingSolarUtc[%s] =[%s]" % (smappeeCommand, type(pluginGlobal['smappees'][devSolar.id]['lastReadingSolarUtc']), pluginGlobal['smappees'][devSolar.id]['lastReadingSolarUtc']))
-                                self.lastReadingSolarDay = int(datetime.datetime.fromtimestamp(float(pluginGlobal['smappees'][devSolar.id]['lastReadingSolarUtc']/1000)).strftime('%j'))
-
-                                autolog(INTERFACE, u"%s - lastReadingSolarDay=[%s] vs currentTimeDay=[%s]" % (smappeeCommand, self.lastReadingSolarDay, self.currentTimeDay))
-
-                                if pluginGlobal['smappees'][devSolar.id]['lastReadingSolarUtc'] > 0 and self.lastReadingSolarDay == self.currentTimeDay and smappeeCommand != 'RESET_CONSUMPTION':
-                                    self.fromTimeSolarUtc = str(int(pluginGlobal['smappees'][devSolar.id]['lastReadingSolarUtc']))
-                                else:
-                                    self.fromTimeSolarUtc = str("%s001" % (int(time.mktime(datetime.datetime.combine(datetime.date.today(), datetime.time()).timetuple()))))
-                                    pluginGlobal['smappees'][devSolar.id]['lastReadingSolarUtc'] = float(float(self.fromTimeSolarUtc) - 1.0)
-                                    if "accumEnergyTotal" in devSolar.states:
-                                        kwh = 0.0
-                                        kwhStr = str("%0.3f kWh" % (kwh))
-                                        autolog(INFO, u"reset '%s' solar generation total to 0.0" % (devSolar.name))
-                                        kwhReformatted = float(str("%0.3f" % (kwh)))
-                                        devSolar.updateStateOnServer("accumEnergyTotal", kwhReformatted, uiValue=kwhStr)
-
-                            if self.solarUsedId != 0:
-                                devSolarUsed = indigo.devices[self.solarUsedId]
-
-                                autolog(INTERFACE, u"%s - lastReadingSolarUsedUtc[%s] =[%s]" % (smappeeCommand, type(pluginGlobal['smappees'][devSolarUsed.id]['lastReadingSolarUsedUtc']), pluginGlobal['smappees'][devSolarUsed.id]['lastReadingSolarUsedUtc']))
-                                self.lastReadingSolarUsedDay = int(datetime.datetime.fromtimestamp(float(pluginGlobal['smappees'][devSolarUsed.id]['lastReadingSolarUsedUtc']/1000)).strftime('%j'))
-
-                                autolog(INTERFACE, u"%s - lastReadingSolarUsedDay=[%s] vs currentTimeDay=[%s]" % (smappeeCommand, self.lastReadingSolarUsedDay, self.currentTimeDay))
-
-                                if pluginGlobal['smappees'][devSolarUsed.id]['lastReadingSolarUsedUtc'] > 0 and self.lastReadingSolarUsedDay == self.currentTimeDay and smappeeCommand != 'RESET_CONSUMPTION':
-                                    self.fromTimeSolarUsedUtc = str(int(pluginGlobal['smappees'][devSolarUsed.id]['lastReadingSolarUsedUtc']))
-                                else:
-                                    self.fromTimeSolarUsedUtc = str("%s001" % (int(time.mktime(datetime.datetime.combine(datetime.date.today(), datetime.time()).timetuple()))))
-                                    pluginGlobal['smappees'][devSolarUsed.id]['lastReadingSolarUsedUtc'] = float(float(self.fromTimeSolarUtc) - 1.0)
-                                    if "accumEnergyTotal" in devSolarUsed.states:
-                                        kwh = 0.0
-                                        kwhStr = str("%0.3f kWh" % (kwh))
-                                        autolog(INFO, u"reset '%s' solar used total to 0.0" % (devSolarUsed.name))
-                                        kwhReformatted = float(str("%0.3f" % (kwh)))
-                                        devSolarUsed.updateStateOnServer("accumEnergyTotal", kwhReformatted, uiValue=kwhStr)
-
-                            if self.solarExportedId != 0:
-                                devSolarExported = indigo.devices[self.solarExportedId]
-
-                                autolog(INTERFACE, u"%s - lastReadingSolarExportedUtc[%s] =[%s]" % (smappeeCommand, type(pluginGlobal['smappees'][devSolarExported.id]['lastReadingSolarExportedUtc']), pluginGlobal['smappees'][devSolarExported.id]['lastReadingSolarExportedUtc']))
-                                self.lastReadingSolarExportedDay = int(datetime.datetime.fromtimestamp(float(pluginGlobal['smappees'][devSolarExported.id]['lastReadingSolarExportedUtc']/1000)).strftime('%j'))
-
-                                autolog(INTERFACE, u"%s - lastReadingSolarExportedDay=[%s] vs currentTimeDay=[%s]" % (smappeeCommand, self.lastReadingSolarExportedDay, self.currentTimeDay))
-
-                                if pluginGlobal['smappees'][devSolarExported.id]['lastReadingSolarExportedUtc'] > 0 and self.lastReadingSolarExportedDay == self.currentTimeDay and smappeeCommand != 'RESET_CONSUMPTION':
-                                    self.fromTimeSolarExportedUtc = str(int(pluginGlobal['smappees'][devSolarExported.id]['lastReadingSolarExportedUtc']))
-                                else:
-                                    self.fromTimeSolarExportedUtc = str("%s001" % (int(time.mktime(datetime.datetime.combine(datetime.date.today(), datetime.time()).timetuple()))))
-                                    pluginGlobal['smappees'][devSolarExported.id]['lastReadingSolarExportedUtc'] = float(float(self.fromTimeSolarUtc) - 1.0)
-                                    if "accumEnergyTotal" in devSolarExported.states:
-                                        kwh = 0.0
-                                        kwhStr = str("%0.3f kWh" % (kwh))
-                                        autolog(INFO, u"reset '%s' solar exported total to 0.0" % (devSolarExported.name))
-                                        kwhReformatted = float(str("%0.3f" % (kwh)))
-                                        devSolarExported.updateStateOnServer("accumEnergyTotal", kwhReformatted, uiValue=kwhStr)
-
-                            self.fromTimeUtc = 0
-                            if self.electricityId != 0:
-                                self.fromTimeUtc = self.fromTimeElectricityUtc
-                                if self.solarId != 0:
-                                    if self.fromTimeSolarUtc < self.fromTimeElectricityUtc:
-                                        self.fromTimeUtc = self.fromTimeSolarUtc
-                            else:
-                                if self.solarId != 0:
-                                    self.fromTimeUtc = self.fromTimeSolarUtc
-
-                            pluginGlobal['consumptionDataReceived'] = True  # Set to True once the self.fromTimeUtc has been determined so getting event data doesn't fail
-
-                            self.toTimeUtc = str("%s000" % (int(self.currentTimeUtc  + float(3600))))  # Add +1 hour to current time
-
-                            autolog(INTERFACE, u"%s - From=[%s], To=[%s]" % (smappeeCommand, self.fromTimeUtc, self.toTimeUtc))
-
-                            self.aggregationType = '1'  # 1 = 5 min values (only available for the last 14 days), 2 = hourly values, 3 = daily values, 4 = monthly values, 5 = yearly values
-
-                            process = subprocess.Popen(['curl', '-H', 'Authorization: Bearer ' + pluginGlobal['config']['accessToken'], 'https://app1pub.smappee.net/dev/v1/servicelocation/' + self.serviceLocationId + '/consumption?aggregation=' + self.aggregationType + '&from=' + self.fromTimeUtc + '&to=' + self.toTimeUtc, ''], stdout=subprocess.PIPE)
-
-                            response = ""
-                            for line in process.stdout:
-                                # autolog(INTERFACE, u"Response to '%s' = %s" % (smappeeCommand, line))
-                                response = response + line.strip()
-
-                            autolog(INTERFACE, u"MERGED Response to '%s' = %s" % (smappeeCommand, response))
-                            
-                            self.returnQueue.put([smappeeCommand, self.serviceLocationId, response])
-
-                    elif smappeeCommand == 'GET_SENSOR_CONSUMPTION' or smappeeCommand == 'RESET_SENSOR_CONSUMPTION':
-
-                        self.serviceLocationId  = commandToSend[1]
-
-                        self.sensorFromTimeUtc = 0
-
-                        for key, value in pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['sensorIds'].iteritems():
-                            # indigo.server.log(u'GET_SENSOR_CONSUMPTION - sensorIds = [Type = %s] %s' % (type(pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['sensorIds']), pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['sensorIds']))
-                            autolog(INTERFACE, u'GET_SENSOR_CONSUMPTION = [Key = %s] %s' % (key, value))
-                            autolog(INTERFACE, u'GET_SENSOR_CONSUMPTION = [DevId = %s]' % (str(value['devId'])))
-
-                            if value['devId'] == 0 :
-                                autolog(INTERFACE, u"%s - GET_SENSOR_CONSUMPTION - No Indigo Sensor Device defined for Smappee Sensor %s" % (smappeeCommand, key))
-                                continue
-
-                            # autolog(INTERFACE, u"%s - GET_SENSOR_CONSUMPTION - smappeeServiceLocationIdToDevId = [%s]" % (smappeeCommand, pluginGlobal['smappeeServiceLocationIdToDevId']))
-
-                            sensorId = value['devId']
-
-                            devSensor = indigo.devices[sensorId]
-
-                            autolog(INTERFACE, u"GET_SENSOR_CONSUMPTION - %s - lastReadingSensorUtc[%s] =[%s]" % (smappeeCommand, type(pluginGlobal['smappees'][devSensor.id]['lastReadingSensorUtc']), pluginGlobal['smappees'][devSensor.id]['lastReadingSensorUtc']))
-                            self.lastReadingSensorDay = int(datetime.datetime.fromtimestamp(float(pluginGlobal['smappees'][devSensor.id]['lastReadingSensorUtc']/1000)).strftime('%j'))
-
-                            autolog(INTERFACE, u"GET_SENSOR_CONSUMPTION - %s - lastReadingSensorDay=[%s] vs currentTimeDay=[%s]" % (smappeeCommand, self.lastReadingSensorDay, self.currentTimeDay))
-
-                            if pluginGlobal['smappees'][devSensor.id]['lastReadingSensorUtc'] > 0 and self.lastReadingSensorDay == self.currentTimeDay and smappeeCommand != 'RESETSENSORCONSUMPTION':
-                                self.fromTimeSensorUtc = str(int(pluginGlobal['smappees'][devSensor.id]['lastReadingSensorUtc']))
-                            else:
-                                self.fromTimeSensorUtc = str("%s001" % (int(time.mktime(datetime.datetime.combine(datetime.date.today(), datetime.time()).timetuple()))))
-                                pluginGlobal['smappees'][devSensor.id]['lastReadingSensorUtc'] = float(float(self.fromTimeSensorUtc) - 1.0)
-                                if "accumEnergyTotal" in devSensor.states:
-                                    kwh = 0.0
-                                    kwhStr = "%0.3f kWh" % (kwh)
-                                    autolog(INFO, u"reset '%s' sensor total to 0.0" % (devSensor.name))
-                                    kwhReformatted = float(str("%0.3f" % (kwh)))
-                                    devSensor.updateStateOnServer("accumEnergyTotal", kwhReformatted, uiValue=kwhStr)
-
-                            self.sensorFromTimeUtc = self.fromTimeSensorUtc
-
-                            self.sensorToTimeUtc = str("%s000" % (int(self.currentTimeUtc  + float(3600))))  # Add +1 hour to current time
-
-                            autolog(INTERFACE, u"GET_SENSOR_CONSUMPTION [BC] - %s - SENSOR From=[%s], To=[%s]" % (smappeeCommand, self.sensorFromTimeUtc, self.sensorToTimeUtc))
-
-                            self.aggregationType = '1'  # 1 = 5 min values (only available for the last 14 days), 2 = hourly values, 3 = daily values, 4 = monthly values, 5 = yearly values
-
-
-                            self.sensorAddress = str(int(str(devSensor.address)[2:4]))
-                            autolog(INTERFACE, u"Sensor Address = '%s'" % (self.sensorAddress))
-
-                            process = subprocess.Popen(['curl', '-H', 'Authorization: Bearer ' + pluginGlobal['config']['accessToken'], 'https://app1pub.smappee.net/dev/v1/servicelocation/' + self.serviceLocationId + '/sensor/'  + self.sensorAddress + '/consumption?aggregation=' + self.aggregationType + '&from=' + self.sensorFromTimeUtc + '&to=' + self.sensorToTimeUtc, ''], stdout=subprocess.PIPE)
-
-                            response = ""
-                            for line in process.stdout:
-                                # autolog(INTERFACE, u"Response to '%s' = %s" % (smappeeCommand, line))
-                                response = response + line.strip()
-
-                            autolog(INTERFACE, u"GET_SENSOR_CONSUMPTION [AC] - MERGED Sensor Response to '%s' = %s" % (smappeeCommand, response))
-
-                            # testTimeStamp1 = '1461488100000'  # TEST DATA
-                            # testTimeStamp2 = '1461491400000'  # TEST DATA
-                            # testTimeStamp3 = '1461494700000'  # TEST DATA
-
-                            # pluginGlobal['testdata']['temperature'].rotate(-1)
-                            # temperature = str(pluginGlobal['testdata']['temperature'][0])
-                            # pluginGlobal['testdata']['humidity'].rotate(-1)
-                            # humidity = str(pluginGlobal['testdata']['humidity'][0])
-                            # pluginGlobal['testdata']['batteryLevel'].rotate(-1)
-                            # batteryLevel = str(pluginGlobal['testdata']['batteryLevel'][0])
-                            # pluginGlobal['testdata']['value1'].rotate(-1)
-                            # value1 = str(pluginGlobal['testdata']['value1'][0])
-                            # pluginGlobal['testdata']['value2'].rotate(-1)
-                            # value2 = str(pluginGlobal['testdata']['value2'][0])
-
-                            # utc = int(time.time())
-                            # testTimeStamp1 = str(int(utc-120)*1000)
-                            # testTimeStamp2 = str(int(utc-60)*1000)
-                            # testTimeStamp3 = str(int(utc)*1000)
-
-
-                            # ' + temperature + '
-                            # ' + humidity + '
-                            # ' + batteryLevel + '
-                            # ' + value1 + '
-                            # ' + value2 + '
-
-                            #response = response[:-3] + '[{"timestamp": ' + testTimeStamp1 + ',"value1": 11.0,"value2": 2.0,"temperature": 226.0,"humidity": 41.0,"battery": 100.0},{"timestamp": ' + testTimeStamp2 + ',"value1": 9.0,"value2": 3.0,"temperature": 220.0,"humidity": 39.0,"battery": 100.0},{"timestamp": ' + testTimeStamp3 + ',"value1": 10.0,"value2": 1.0,"temperature": 202.0,"humidity": 39.0,"battery": 100.0}], "error": "This is a sample error from Smappee","UNKNOWN KEY TEST" : "THIS IS AN ERROR VALUE"}'
-                            #response = response[:-3] + '[{"timestamp": ' + testTimeStamp1 + ',"value1": ' + value1 + ',"value2": ' + value2 + ',"temperature": ' + temperature + ',"humidity": ' + humidity + ',"battery": ' + batteryLevel + '},{"timestamp": ' + testTimeStamp2 + ',"value1": ' + value1 + ',"value2": ' + value2 + ',"temperature": ' + temperature + ',"humidity": ' + humidity + ',"battery": ' + batteryLevel + '},{"timestamp": ' + testTimeStamp3 + ',"value1": ' + value1 + ',"value2": ' + value2 + ',"temperature": ' + temperature + ',"humidity": ' + humidity + ',"battery": ' + batteryLevel + '}]}'
-
-                            # autolog(INTERFACE, u"GET_SENSOR_CONSUMPTION [AC-FIXED] - MERGED Sensor Response to '%s' = %s" % (smappeeCommand, response))
-                            
-                            self.returnQueue.put([smappeeCommand, self.serviceLocationId, response])
-
-
-
-                    elif smappeeCommand == 'GET_EVENTS' and pluginGlobal['consumptionDataReceived'] == True:
-                        self.serviceLocationId = commandToSend[1]
-
-                        autolog(INTERFACE, u"%s - smappeeServiceLocationIdToDevId = [%s]" % (smappeeCommand, pluginGlobal['smappeeServiceLocationIdToDevId']))
-                        if pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricityId'] != 0:
-                            dev = indigo.devices[pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricityId']]
-
-                            self.toTimeUtc = time.mktime(indigo.server.getTime().timetuple())
-                            autolog(INTERFACE, u"%s - self.toTimeUtc[%s] =[%s]" % (smappeeCommand, type(self.toTimeUtc), self.toTimeUtc))
-
-                            autolog(INTERFACE, u"%s - lastReadingElectricityUtc[%s] =[%s]" % (smappeeCommand, type(pluginGlobal['smappees'][dev.id]['lastReadingElectricityUtc']), pluginGlobal['smappees'][dev.id]['lastReadingElectricityUtc']))
-                            self.lastReadingDay = int(datetime.datetime.fromtimestamp(float(pluginGlobal['smappees'][dev.id]['lastReadingElectricityUtc']/1000)).strftime('%j'))
-
-                            self.currentTimeDay = int(datetime.datetime.fromtimestamp(self.toTimeUtc).strftime('%j'))
-                            autolog(INTERFACE, u"%s - lastReadingDay=[%s] vs currentTimeDay=[%s]" % (smappeeCommand, self.lastReadingDay, self.currentTimeDay))
-
-                            self.toTimeUtc = str("%s000" % (int(self.toTimeUtc  + float(3600))))
-
-                            autolog(INTERFACE, u"%s - From=[%s], To=[%s]" % (smappeeCommand, self.fromTimeUtc, self.toTimeUtc))
-
-                            self.appliances = 'applianceId=1&applianceId=2&applianceId=15&applianceId=3&applianceId=34'
-                            self.maxNumber = '20'
-                            process = subprocess.Popen(['curl', '-H', 'Authorization: Bearer ' + pluginGlobal['config']['accessToken'], 'https://app1pub.smappee.net/dev/v1/servicelocation/' + self.serviceLocationId + '/events?' + self.appliances + '&maxNumber=' + self.maxNumber + '&from=' + self.fromTimeUtc + '&to=' + self.toTimeUtc, ''], stdout=subprocess.PIPE)
-
-                            response = ""
-                            for line in process.stdout:
-                                autolog(INTERFACE, u"Response to '%s' = %s" % (smappeeCommand, line))
-                                response = response + line.strip()
-
-                            autolog(INTERFACE, u"MERGED Response to '%s' = %s" % (smappeeCommand, response))
-                            
-                            self.returnQueue.put([smappeeCommand, self.serviceLocationId, response])
-                    elif smappeeCommand == 'INITIALISE':
-                        process = subprocess.Popen(['curl', '-XPOST', '-d', 'client_id=' + pluginGlobal['config']['clientId'] + '&client_secret=' + pluginGlobal['config']['secret'] + '&grant_type=password&username=' + pluginGlobal['config']['userName']  + '&password=' + pluginGlobal['config']['password'], 'https://app1pub.smappee.net/dev/v1/oauth2/token', '-d', ''], stdout=subprocess.PIPE)
-
-                        response = ""
-                        for line in process.stdout:
-                            # autolog(INTERFACE, u"Line Response to '%s' = %s" % (smappeeCommand, line))
-                            response = response + line.strip()
-
-                        autolog(INTERFACE, u"MERGED Response to '%s' = %s" % (smappeeCommand, response))
-                        
-                        self.returnQueue.put(['INITIALISE', "", response])
-
-                        continue  # Continue while loop i.e. skip refresh authentication token check at end of this while loop as we have only just authenticated
-
-                    elif smappeeCommand == 'GET_SERVICE_LOCATIONS': 
-                        process = subprocess.Popen(['curl', '-H', 'Authorization: Bearer ' + pluginGlobal['config']['accessToken'], 'https://app1pub.smappee.net/dev/v1/servicelocation', ''], stdout=subprocess.PIPE)
-
-                        response = ""
-                        for line in process.stdout:
-                            # autolog(INTERFACE, u"Response to '%s' = %s" % (smappeeCommand, line))
-                            response = response + line.strip()
-
-                        autolog(INTERFACE, u"MERGED Response to '%s' = %s" % (smappeeCommand, response))
-                        
-                        self.returnQueue.put(['GET_SERVICE_LOCATIONS', "", response])
-
-
-
-                    elif smappeeCommand == 'GET_SERVICE_LOCATION_INFO':
-                        self.serviceLocationId = commandToSend[1] 
-                        process = subprocess.Popen(['curl', '-H', 'Authorization: Bearer ' + pluginGlobal['config']['accessToken'], 'https://app1pub.smappee.net/dev/v1/servicelocation/' + self.serviceLocationId + '/info', ''], stdout=subprocess.PIPE)
-
-                        response = ""
-                        for line in process.stdout:
-                            # autolog(INTERFACE, u"Response to '%s' = %s" % (smappeeCommand, line))
-                            response = response + line.strip()
-
-                        # TESTING GAS / WATER [START]
-                        # response = response[:-1]
-                        # response = response + str(', "sensors": [{"id": 4, "name": "Sensor 4"}, {"id": 5, "name": "Sensor 5"}]}').strip()
-                        # TESTING GAS / WATER [END]
-
-                        autolog(INTERFACE, u"MERGED Response to '%s' = %s" % (smappeeCommand, response))
-                        
-                        self.returnQueue.put(['GET_SERVICE_LOCATION_INFO', self.serviceLocationId, response])
-
- 
-                    elif smappeeCommand == 'ON' or smappeeCommand == 'OFF':
-
-                        # Format: 'ON|OFF', ServiceLocationId, ActuatorId 
-
-                        self.serviceLocationId = commandToSend[1]
-                        self.actuatorId = commandToSend[2]
-
-                        process = subprocess.Popen(['curl', '-H', 'Content-Type: application/json', '-H', 'Authorization: Bearer ' + pluginGlobal['config']['accessToken'], '-d', '{}', 'https://app1pub.smappee.net/dev/v1/servicelocation/' + self.serviceLocationId + '/actuator/' + self.actuatorId + '/' + str(smappeeCommand).lower(), ''], stdout=subprocess.PIPE)
-
-                        autolog(INTERFACE, u"DEBUG PROCESS [On/OFF]: [%s]:[%s]" % (type(commandToSend),commandToSend))
-
-
-                        for line in process.stdout:
-                            # autolog(INTERFACE, u"Response to '%s' = %s" % (smappeeCommand, line))
-                            response = response + line.strip()
-
-                        autolog(INTERFACE, u"MERGED Response to '%s' = %s" % (smappeeCommand, response))
-                        
-                        # No need to handle reponse
-
-                    # Finally check if authentication token needs refreshing (but only if thread NOT ending)
-                    if keepThreadActive == True:
-                        self.currentTimeUTC = time.mktime(indigo.server.getTime().timetuple())
-                        if self.currentTimeUTC > pluginGlobal['config']['tokenExpiresDateTimeUtc']:
-                            autolog(INTERFACE, u"Refresh Token Request = %s" % (pluginGlobal['config']['refreshToken']))
-                            autolog(INTERFACE, u"Refresh Token, currentUTC[%s] = %s, expiresUTC[%s] = %s" % (type(self.currentTimeUTC),self.currentTimeUTC,type(pluginGlobal['config']['tokenExpiresDateTimeUtc']),pluginGlobal['config']['tokenExpiresDateTimeUtc']))
-
-                            process = subprocess.Popen(['curl', '-XPOST', '-H', 'application/x-www-form-urlencoded;charset=UTF-8', '-d', 'grant_type=refresh_token&refresh_token=' + pluginGlobal['config']['refreshToken'] + '&client_id=' + pluginGlobal['config']['clientId'] + '&client_secret=' + pluginGlobal['config']['secret'], 'https://app1pub.smappee.net/dev/v1/oauth2/token', '-d', ''], stdout=subprocess.PIPE)
-
-                            response = ""
-                            for line in process.stdout:
-                                # autolog(INTERFACE, u"Line Response to Refresh Token = %s" % (line))
-                                response = response + line.strip()
-
-                            autolog(INTERFACE, u"MERGED Response to Refresh Token = %s" % (response))
-
-                            self.returnQueue.put(['REFRESH_TOKEN', "", response])
-
-
-
-
-                except autologQueueEmpty:
-                    pass
-                except StandardError, e:
-                    autolog(ERROR, u"StandardError detected communicating with Smappee. Line '%s' has error='%s'" % (sys.exc_traceback.tb_lineno, e))   
-
-            if smappeeCommand == 'ENDTHREAD':
-                autolog(INTERFACE, u"Command Thread ending.")   
-
-        except StandardError, e:
-            autolog(ERROR, u"StandardError detected in Smappee Command Thread. Line '%s' has error='%s'" % (sys.exc_traceback.tb_lineno, e))   
-
-        autolog(INTERFACE, u"Smappee Command Thread ended.")   
-        thread.exit()
-
-
+# noinspection PyPep8Naming,PyUnresolvedReferences
 class Plugin(indigo.PluginBase):
 
     def __init__(self, pluginId, pluginDisplayName, pluginVersion, pluginPrefs):
-        global pluginGlobal
 
         indigo.PluginBase.__init__(self, pluginId, pluginDisplayName, pluginVersion, pluginPrefs)
 
-        pluginGlobal['plugin']['pluginId'] = pluginId
-        pluginGlobal['plugin']['pluginDisplayName'] = pluginDisplayName
-        pluginGlobal['plugin']['pluginVersion'] = pluginVersion
-        # indigo.server.log(u'ID = %s, NAME = %s, VERSION = %s' % (pluginGlobal['plugin']['pluginId'], pluginGlobal['plugin']['pluginDisplayName'], pluginGlobal['plugin']['pluginVersion']), isError=True)
+        # Initialise dictionary to store plugin Globals
+        self.globals = dict()
 
-        self.testThis = 'ABC'
-        self.nextTest = 'DEF'
+        # Initialise Indigo plugin info
+        self.globals['plugin'] = dict()  # Info about the plugin filled in by Plugin Start
+        self.globals['plugin']['pluginId'] = pluginId
+        self.globals['plugin']['pluginDisplayName'] = pluginDisplayName
+        self.globals['plugin']['pluginVersion'] = pluginVersion
 
-        self.validatePrefsConfigUi(pluginPrefs)  # Validate the Plugin Config before plugin initialisation
+        # Initialise dictionary for debug in plugin Globals
+        self.globals['debug'] = dict()
+        self.globals['debug']['debugEnabled'] = False  # if False it indicates no debugging is active else it indicates that at least one type of debug is active
+        self.globals['debug']['active'] = False  # if False it indicates no debugging is active else it indicates that at least one type of debug is active
 
+        self.globals['debug']['general'] = False  # For general debugging
+        self.globals['debug']['deviceFactory'] = False  # For device factory debugging
+        self.globals['debug']['smappeeInterface'] = False  # For Smappee interface debugging
+        self.globals['debug']['polling'] = False  # For polling debugging
+        self.globals['debug']['methodTrace'] = False  # For displaying method invocations i.e. trace method
 
+        self.globals['debug']['previous'] = dict()
+        self.globals['debug']['previous']['general'] = False  # For general debugging
+        self.globals['debug']['previous']['deviceFactory'] = False  # For device factory debugging
+        self.globals['debug']['previous']['smappeeInterface'] = False  # For logging commands sent to and received from the Smappee interface
+        self.globals['debug']['previous']['polling'] = False  # For polling debugging
+        self.globals['debug']['previous']['methodTrace'] = False  # For displaying method invocations i.e. trace method
+
+        # Setup Logging
+        logformat = logging.Formatter('%(asctime)s.%(msecs)03d\t%(levelname)-12s\t%(name)s.%(funcName)-25s %(msg)s',
+                                      datefmt='%Y-%m-%d %H:%M:%S')
+        self.plugin_file_handler.setFormatter(logformat)
+        self.plugin_file_handler.setLevel(logging.INFO)  # Master Logging Level for Plugin Log file
+        self.indigo_log_handler.setLevel(logging.INFO)  # Logging level for Indigo Event Log
+        self.generalLogger = logging.getLogger("Plugin.general")
+        self.generalLogger.setLevel(self.globals['debug']['general'])
+        self.deviceFactoryLogger = logging.getLogger("Plugin.deviceFactory")
+        self.deviceFactoryLogger.setLevel(self.globals['debug']['deviceFactory'])
+        self.methodTracer = logging.getLogger("Plugin.method")
+        self.methodTracer.setLevel(self.globals['debug']['methodTrace'])
+
+        # Now logging is set-up, output Initialising Message
+        self.generalLogger.info(u"'Smappee V3' plugin initializing . . .")
+
+        # Initialise id of folder to hold devices
+        self.globals['devicesFolderId'] = 0
+
+        # Initialise dictionary to store message queues
+        self.globals['queues'] = dict()
+        self.globals['queues']['initialised'] = False
+
+        self.globals['SQL'] = dict()
+        self.globals['SQL']['enabled'] = False
+        # self.globals['SQL']['db'] = '/Users/admin/Documents/Autolog/sqlite/smappee.db'
+        # self.globals['SQL']['dbType'] = 'sqlite3'
+        # self.globals['SQL']['connection'] = ''
+        # self.globals['SQL']['cursor'] = ''
+
+        self.globals['TESTING'] = False  # Set to True to action next section of code
+        if self.globals['TESTING']:
+            self.globals['testdata'] = dict()
+            self.globals['testdata']['temperature'] = collections.deque(
+                ['255', '252', '250', '249', '247', '246', '220', '223', '221', '198', '195', '192'])
+            self.globals['testdata']['humidity'] = collections.deque(
+                ['90', '85', '80', '75', '70', '65', '60', '55', '50', '45', '40', '35'])
+            self.globals['testdata']['batteryLevel'] = collections.deque(
+                ['100', '99', '98', '97', '95', '94', '93', '92', '91', '90', '89', '88'])
+            self.globals['testdata']['value1'] = collections.deque(
+                ['0', '800', '400', '0', '800', '800', '1200', '100', '0', '0', '1000', '700'])
+            self.globals['testdata']['value2'] = collections.deque(
+                ['50', '50', '0', '0', '0', '0', '400', '0', '0', '0', '50', '70'])
+
+        self.globals['unitTable'] = dict()
+
+        self.globals['unitTable']['default'] = dict()
+        self.globals['unitTable']['default']['measurementTimeMultiplier'] = 12.0  # 'hourly' = 12, '5 minutes' = 1'
+        self.globals['unitTable']['default']['formatTotaldivisor'] = 1000.0
+        self.globals['unitTable']['default']['formatCurrent'] = "%d"
+        self.globals['unitTable']['default']['formatTotal'] = "%3.0f"
+        self.globals['unitTable']['default']['currentUnits'] = 'watts [E]'
+        self.globals['unitTable']['default']['currentUnitsRate'] = 'watt [E] hours'
+        self.globals['unitTable']['default']['accumUnits'] = 'kWh [E]'
+
+        self.globals['unitTable']['kWh'] = dict()
+        self.globals['unitTable']['kWh']['measurementTimeMultiplier'] = 12.0  # 'hourly' = 12, '5 minutes' = 1'
+        self.globals['unitTable']['kWh']['formatTotaldivisor'] = 1000.0
+        self.globals['unitTable']['kWh']['formatCurrentDivisor'] = 1000.0
+        self.globals['unitTable']['kWh']['formatCurrent'] = "%d"
+        self.globals['unitTable']['kWh']['formatTotal'] = "%3.0f"
+        self.globals['unitTable']['kWh']['currentUnits'] = 'watts'
+        self.globals['unitTable']['kWh']['currentUnitsRate'] = 'watt hours'
+        self.globals['unitTable']['kWh']['accumUnits'] = 'kWh'
+
+        self.globals['unitTable']['litres'] = dict()
+        self.globals['unitTable']['litres']['measurementTimeMultiplier'] = 1.0  # 'hourly' = 12, '5 minutes' = 1'
+        self.globals['unitTable']['litres']['formatTotaldivisor'] = 1.0
+        self.globals['unitTable']['litres']['formatCurrent'] = "%d"
+        self.globals['unitTable']['litres']['formatTotal'] = "%d"
+        self.globals['unitTable']['litres']['currentUnits'] = 'litres'
+        self.globals['unitTable']['litres']['accumUnits'] = 'litres'
+
+        self.globals['unitTable']['m3'] = dict()
+        self.globals['unitTable']['m3']['measurementTimeMultiplier'] = 1.0  # 'hourly' = 12, '5 minutes' = 1'
+        self.globals['unitTable']['m3']['formatTotaldivisor'] = 1.0
+        self.globals['unitTable']['m3']['formatCurrent'] = "%d"
+        self.globals['unitTable']['m3']['formatTotal'] = "%d"
+        self.globals['unitTable']['m3']['currentUnits'] = 'cubic metres'
+        self.globals['unitTable']['m3']['accumUnits'] = 'cubic metres'
+
+        self.globals['unitTable']['ft3'] = dict()
+        self.globals['unitTable']['ft3']['measurementTimeMultiplier'] = 1.0  # 'hourly' = 12, '5 minutes' = 1'
+        self.globals['unitTable']['ft3']['formatTotaldivisor'] = 1.0
+        self.globals['unitTable']['ft3']['formatCurrent'] = "%d"
+        self.globals['unitTable']['ft3']['formatTotal'] = "%d"
+        self.globals['unitTable']['ft3']['currentUnits'] = 'cubic feet'
+        self.globals['unitTable']['ft3']['accumUnits'] = 'cubic feet'
+
+        self.globals['unitTable']['gallons'] = dict()
+        self.globals['unitTable']['gallons']['measurementTimeMultiplier'] = 1.0  # 'hourly' = 12, '5 minutes' = 1'
+        self.globals['unitTable']['gallons']['formatTotaldivisor'] = 1.0
+        self.globals['unitTable']['gallons']['formatCurrent'] = "%d"
+        self.globals['unitTable']['gallons']['formatTotal'] = "%d"
+        self.globals['unitTable']['gallons']['currentUnits'] = 'gallons'
+        self.globals['unitTable']['gallons']['accumUnits'] = 'gallons'
+
+        self.globals['config'] = dict()
+        self.globals['config']['address'] = ''
+        self.globals['config']['clientId'] = ''
+        self.globals['config']['secret'] = ''
+        self.globals['config']['userName'] = ''
+        self.globals['config']['password'] = ''
+
+        self.globals['config'][
+            'appName'] = ''  # Not sure what this is for! Name provided by Get ServiceLocations Smappee call
+
+        self.globals['config']['accessToken'] = ''
+        self.globals['config']['refreshToken'] = ''
+        self.globals['config']['tokenExpiresIn'] = 0
+        self.globals['config']['tokenExpiresDateTimeUtc'] = 0
+
+        self.globals['config']['supportsElectricity'] = False
+        self.globals['config']['supportsElectricityNet'] = False
+        self.globals['config']['supportsElectricitySaved'] = False
+        self.globals['config']['supportsSolar'] = False
+        self.globals['config']['supportsSolarUsed'] = False
+        self.globals['config']['supportsSolarExported'] = False
+        self.globals['config']['supportsSensor'] = False
+
+        # Initialise Global arrays to store internal details about Smappees, Smappee Appliances & Plugs
+        self.globals['pluginInitialised'] = False
+        self.globals['consumptionDataReceived'] = False  # Used to signify it is now OK to get Events
+        self.globals[
+            'smappeeServiceLocationIdToDevId'] = {}  # Used to derive Smappee Device Ids from Smappee Service Location Ids
+        self.globals['smappees'] = {}
+        self.globals['smappeeAppliances'] = {}
+        self.globals['smappeePlugs'] = dict()
+
+        self.globals['polling'] = dict()
+        self.globals['polling']['threadActive'] = False        
+        self.globals['polling']['status'] = False
+        self.globals['polling']['seconds'] = float(300.0)  # 5 minutes
+        self.globals['polling']['threadEnd'] = False
+
+        # Initialise dictionary for update checking
+        self.globals['update'] = {}
+
+        # Set Plugin Config Values
+        self.closedPrefsConfigUi(pluginPrefs, False)
 
     def __del__(self):
 
         indigo.PluginBase.__del__(self)
 
+    def updatePlugin(self):
+        self.globals['update']['updater'].update()
+
+    def checkForUpdates(self):
+        self.globals['update']['updater'].checkForUpdate()
+
+    def forceUpdate(self):
+        self.globals['update']['updater'].update(currentVersion='0.0.0')
+
+    def checkRateLimit(self):
+        limiter = self.globals['update']['updater'].getRateLimit()
+        indigo.server.log('RateLimit {limit:%d remaining:%d resetAt:%d}' % limiter)
 
     def startup(self):
-        global pluginGlobal
-        # autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: Plugin")
 
-        # Create process queues
-        self.sendToSmappeeQueue = autologQueue()  # Used to queue commands to be sent to Smappee
-        self.processQueue = autologQueue()        # Used to receive replies from Smappee
+        # Set-up update checker
+        self.globals['update'] = dict()
+        self.globals['update']['updater'] = GitHubPluginUpdater(self)
+        self.globals['update']['nextCheckTime'] = time.time()
 
         # Initialise debug  
-        pluginGlobal['debug']['detailed']      = bool(self.pluginPrefs.get("debugDetailed", False))
-        pluginGlobal['debug']['deviceFactory'] = bool(self.pluginPrefs.get("debugDeviceFactory", False))
-        pluginGlobal['debug']['interface']     = bool(self.pluginPrefs.get("debugInterface", False))
-        pluginGlobal['debug']['methodTrace']   = bool(self.pluginPrefs.get("debugMethodTrace", False))
-        pluginGlobal['debug']['polling']       = bool(self.pluginPrefs.get("debugPolling", False))
+        self.globals['debug']['general'] = bool(self.pluginPrefs.get("debugGeneral", False))
+        self.globals['debug']['deviceFactory'] = bool(self.pluginPrefs.get("debugDeviceFactory", False))
+        self.globals['debug']['smappeInterface'] = bool(self.pluginPrefs.get("debugSmappeeInterface", False))
+        self.globals['debug']['methodTrace'] = bool(self.pluginPrefs.get("debugMethodTrace", False))
+        self.globals['debug']['polling'] = bool(self.pluginPrefs.get("debugPolling", False))
 
-        pluginGlobal['debug']['active'] = pluginGlobal['debug']['detailed'] or pluginGlobal['debug']['deviceFactory'] or pluginGlobal['debug']['interface'] or pluginGlobal['debug']['methodTrace'] or pluginGlobal['debug']['polling']
-
-        # Initialise validation flags - Used to ensure thread safe processing 
-        self.validateDeviceFlag = {}
-        self.validateActionFlags = {}
-
-        # Create Smappee folder name in variables (for presets?) and devices (for smappee monitors, appliances and plugs)
-
-        self.variableFolderName = "SMAPPEE"
-        if (self.variableFolderName not in indigo.variables.folders):
-            self.variableFolder = indigo.variables.folder.create(self.variableFolderName)
-        pluginGlobal['variableFolderId'] = indigo.variables.folders.getId(self.variableFolderName)
-
-        self.deviceFolderName = "SMAPPEE"
-        if (self.deviceFolderName not in indigo.devices.folders):
-            self.deviceFolder = indigo.devices.folder.create(self.deviceFolderName)
-        pluginGlobal['deviceFolderId'] = indigo.devices.folders.getId(self.deviceFolderName)
-
-        debugFile = str('%s/%s' %(pluginGlobal['debug']['debugFolder'], 'autolog/smappee/debug/debug.txt'))
-        pluginGlobal['autologger'] = logging.getLogger(debugFile)
-        pluginGlobal['autologger'].setLevel(logging.INFO)
-        handler = TimedRotatingFileHandler(debugFile, when="midnight", interval=10, backupCount=6)
-        pluginGlobal['autologger'].addHandler(handler)
-
-        pluginGlobal['debug']['initialised'] = True  # To tell the debug logic it can now write to the debug file
+        self.globals['debug']['active'] = self.globals['debug']['general'] or self.globals['debug']['deviceFactory'] or \
+                                          self.globals['debug']['smappeInterface'] or self.globals['debug']['methodTrace'] or \
+                                          self.globals['debug']['polling']
 
         indigo.devices.subscribeToChanges()
 
-        # define and start thread that will send commands to & receive commands from Smappee
-        self.ThreadInteractWithSmappee = ThreadInteractWithSmappee(self.sendToSmappeeQueue, self.processQueue)
-        self.ThreadInteractWithSmappee.start()
+        # Create queues
+        self.globals['queues'] = dict()
+        self.globals['queues']['sendToSmappee'] = Queue.Queue()  # Used to queue smappee commands
+        self.globals['queues']['process'] = Queue.Queue()  # Used to queue output from smappee
+        self.globals['queues']['initialised'] = True
+
+        self.globals['threads'] = dict()
+        self.globals['threads']['polling'] = dict()
+        self.globals['threads']['smappeeInterface'] = dict()
+
+        self.globals['threads']['smappeeInterface']['event'] = threading.Event()
+        self.globals['threads']['smappeeInterface']['thread'] = ThreadSmappeeInterface(self.globals,
+                                                                                             self.globals['threads'][
+                                                                                                 'smappeeInterface'][
+                                                                                                 'event'])
+        self.globals['threads']['smappeeInterface']['thread'].start()
 
         # Now send an INITIALISE command (via queue) to Smappee to initialise the plugin
-        self.sendToSmappeeQueue.put(['INITIALISE'])
+        self.globals['queues']['sendToSmappee'].put(['INITIALISE'])
 
         # Start the Polling thread
-        if pluginGlobal['polling']['status'] == True and not hasattr(self, 'pollingThread'):
-            pluginGlobal['polling']['threadEnd'] = False  # Just in case!
-            self.pollingEvent = threading.Event()
-            self.pollingThread = ThreadPolling(self.pollingEvent, self.sendToSmappeeQueue)
-            self.pollingThread.start() 
+        if self.globals['polling']['status'] and not self.globals['polling']['threadActive']:
+            self.globals['threads']['polling']['event'] = threading.Event()
+            self.globals['threads']['polling']['thread'] = ThreadPolling(self.globals,
+                                                                         self.globals['threads']['polling']['event'])
+            self.globals['threads']['polling']['thread'].start()
 
-        autolog(INFO, u"Initialisation in progress ...")
-
+        self.generalLogger.info(u"Initialisation in progress ...")
 
     def shutdown(self):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: Plugin")
 
-        autolog(INFO, u"Plugin shutdown requested")
+        self.generalLogger.info(u"Plugin shutdown requested")
 
-        self.sendToSmappeeQueue.put(['ENDTHREAD'])
+        self.globals['queues']['sendToSmappee'] .put(['ENDTHREAD'])
 
         if hasattr(self, 'pollingThread'):
-            if pluginGlobal['polling']['status'] == True:
-                pluginGlobal['polling']['threadEnd'] = True
+            if self.globals['polling']['status']:
+                self.globals['polling']['threadEnd'] = True
                 self.pollingEvent.set()  # Stop the Polling Thread
 
-        time.sleep(2)  # Wait 2 seconds before contacting Smappee - gives plugin time to properly shutdown
+        # time.sleep(2)  # Wait 2 seconds before contacting Smappee - gives plugin time to properly shutdown
 
-        autolog(INFO, u"Plugin shutdown complete")
+        self.generalLogger.info(u"Plugin shutdown complete")
 
+    def getPrefsConfigUiValues(self):
+        self.methodTracer.threaddebug(u"CLASS: getPrefsConfigUiValues")
+
+        prefsConfigUiValues = self.pluginPrefs
+        if "smappeeDeviceFolder" not in prefsConfigUiValues:
+            prefsConfigUiValues["smappeeDeviceFolder"] = 'SMAPPEE'
+
+        return prefsConfigUiValues
+
+    def validatePrefsConfigUi(self, valuesDict):
+        self.methodTracer.threaddebug(u"CLASS: Plugin")
+
+        return True
+
+    def closedPrefsConfigUi(self, valuesDict, userCancelled):
+        self.methodTracer.threaddebug(u"CLASS: closedPrefsConfigUi")
+        self.generalLogger.debug(u"'closePrefsConfigUi' called with userCancelled = %s" % str(userCancelled))
+
+        try:
+            if userCancelled:
+                return
+
+            self.globals['update']['check'] = bool(valuesDict.get("updateCheck", False))
+            self.globals['update']['checkFrequency'] = valuesDict.get("checkFrequency", 'DAILY')
+
+            if self.globals['update']['check']:
+                if self.globals['update']['checkFrequency'] == 'WEEKLY':
+                    self.globals['update']['checkTimeIncrement'] = (7 * 24 * 60 * 60)  # In seconds
+                else:
+                    # DAILY 
+                    self.globals['update']['checkTimeIncrement'] = (24 * 60 * 60)  # In seconds
+
+            if "smappeeAddress" in valuesDict:
+                self.globals['config']['address'] = valuesDict["smappeeAddress"]
+            else:
+                self.globals['config']['address'] = "https://app1pub.smappee.net/dev/v1/servicelocation"
+
+            if "smappeeClientId" in valuesDict:
+                self.globals['config']['clientId'] = valuesDict["smappeeClientId"]
+            else:
+                self.globals['config']['clientId'] = ""
+
+            if "smappeeSecret" in valuesDict:
+                self.globals['config']['secret'] = valuesDict["smappeeSecret"]
+            else:
+                self.globals['config']['secret'] = ""
+
+            if "smappeeUserName" in valuesDict:
+                self.globals['config']['userName'] = valuesDict["smappeeUserName"]
+            else:
+                self.globals['config']['userName'] = ""
+
+            if "smappeePassword" in valuesDict:
+                self.globals['config']['password'] = valuesDict["smappeePassword"]
+            else:
+                self.globals['config']['password'] = ""
+
+            # ### FOLDER ###
+            if "smappeeDeviceFolder" in valuesDict:
+                self.globals['config']['smappeeDeviceFolder'] = valuesDict["smappeeDeviceFolder"]
+            else:
+                self.globals['config']['smappeeDeviceFolder'] = "SMAPPEE"
+
+            # Create Smappee folder name (if required) in devices (for smappee monitors, appliances and plugs)
+            self.deviceFolderName = self.globals['config']['smappeeDeviceFolder']
+            if self.deviceFolderName == '':
+                self.globals['devicesFolderId'] = None  # Not required
+            else:
+                if self.deviceFolderName not in indigo.devices.folders:
+                    self.deviceFolder = indigo.devices.folder.create(self.deviceFolderName)
+                self.globals['devicesFolderId'] = indigo.devices.folders.getId(self.deviceFolderName)
+
+            # ### POLLING ###
+            self.globals['polling']['status'] = bool(valuesDict.get("statusPolling", False))
+            self.globals['polling']['seconds'] = float(valuesDict.get("pollingSeconds", float(300.0)))  # Default to 5 minutes
+
+            # Check monitoring / debug / filered IP address options  
+            self.setDebuggingLevels(valuesDict)
+
+            # Following logic checks whether polling is required.
+            #
+            # If it isn't required, then it checks if a polling thread exists and if it does it ends it
+            # If it is required, then it checks if a pollling thread exists and 
+            #   if a polling thread doesn't exist it will create one as long as the start logic has completed and created a Smappee Command Queue.
+            #   In the case where a Smappee command queue hasn't been created then it means 'Start' is yet to run and so 
+            #   'Start' will create the polling thread. So this bit of logic is mainly used where polling has been turned off
+            #   after starting and then turned on again
+            # If polling is required and a polling thread exists, then the logic 'sets' an event to cause the polling thread to awaken and
+            #   update the polling interval
+
+            if not self.globals['polling']['status']:
+                if self.globals['polling']['threadActive']:
+                    self.globals['polling']['forceThreadEnd'] = True
+                    self.globals['threads']['polling']['event'].set()  # Stop the Polling Thread
+                    self.globals['threads']['polling']['thread'].join(5.0)  # Wait for up t0 5 seconds for it to end
+                    del self.globals['threads']['polling']['thread']  # Delete thread so that it can be recreated if polling is turned on again
+            else:
+                if not self.globals['polling']['threadActive']:
+                    if self.globals['queues']['initialised']:
+                        self.globals['polling']['forceThreadEnd'] = False
+                        self.globals['threads']['polling']['event'] = threading.Event()
+                        self.globals['threads']['polling']['thread'] = ThreadPolling(self.globals, self.globals['threads']['polling']['event'])
+                        self.globals['threads']['polling']['thread'].start()
+                else:
+                    self.globals['polling']['forceThreadEnd'] = False
+                    self.globals['threads']['polling']['event'].set()  # cause the Polling Thread to update immediately with potentially new polling seconds value
+
+        except StandardError, e:
+            self.generalLogger.error(u"closedPrefsConfigUi error detected. Line '%s' has error='%s'" % (sys.exc_traceback.tb_lineno, e))   
+            return True
+
+    def setDebuggingLevels(self, valuesDict):
+        self.methodTracer.threaddebug(u"CLASS: Plugin")
+
+        self.globals['debug']['debugEnabled'] = bool(valuesDict.get("debugEnabled", False))
+
+        self.globals['debug']['general'] = logging.INFO  # For general debugging of the main thread
+        self.globals['debug']['deviceFactory'] = logging.INFO  # For logging messages 
+        self.globals['debug']['smappeeInterface'] = logging.INFO  # For debugging messages
+        self.globals['debug']['methodTrace'] = logging.INFO  # For displaying method invocations i.e. trace method
+        self.globals['debug']['polling'] = logging.INFO  # For polling debugging
+
+        if not self.globals['debug']['debugEnabled']:
+            self.plugin_file_handler.setLevel(logging.INFO)
+        else:
+            self.plugin_file_handler.setLevel(logging.THREADDEBUG)
+
+        debugGeneral = bool(valuesDict.get("debugGeneral", False))
+        debugDeviceFactory = bool(valuesDict.get("debugDeviceFactory", False))
+        debugSmappeeInterface = bool(valuesDict.get("debugSmappeeInterface", False))
+        debugMethodTrace = bool(valuesDict.get("debugMethodTrace", False))
+        debugPolling = bool(valuesDict.get("debugPolling", False))
+
+        if debugGeneral:
+            self.globals['debug']['general'] = logging.DEBUG  # For general debugging of the main thread
+            self.generalLogger.setLevel(self.globals['debug']['general'])
+        if debugDeviceFactory:
+            self.globals['debug']['deviceFactory'] = logging.DEBUG  # For logging device factory processing 
+        if debugSmappeeInterface:
+            self.globals['debug']['smappeeInterface'] = logging.DEBUG  # For debugging interaction with Smappee
+        if debugMethodTrace:
+            self.globals['debug']['methodTrace'] = logging.THREADDEBUG  # For displaying method invocations i.e. trace method
+        if debugPolling:
+            self.globals['debug']['polling'] = logging.DEBUG  # For polling debugging
+
+        self.globals['debug']['debugActive'] = debugGeneral or debugDeviceFactory or debugSmappeeInterface or debugMethodTrace or debugPolling
+
+        if not self.globals['debug']['debugEnabled']:
+            self.generalLogger.info(u"No debugging requested")
+        else:
+            debugTypes = []
+            if debugGeneral:
+                debugTypes.append('General')
+            if debugDeviceFactory:
+                debugTypes.append('Device Factory')
+            if debugSmappeeInterface:
+                debugTypes.append('Smappee Interface')
+            if debugMethodTrace:
+                debugTypes.append('Method Trace')
+            if debugPolling:
+                debugTypes.append('Polling')
+            message = self.listActive(debugTypes)   
+            self.generalLogger.warning(u"Debugging enabled for Smappee: %s" % message)
+
+    def listActive(self, debugTypes):            
+        self.methodTracer.threaddebug(u"CLASS: Plugin")
+
+        loop = 0
+        listedTypes = ''
+        for debugType in debugTypes:
+            if loop == 0:
+                listedTypes = listedTypes + debugType
+            else:
+                listedTypes = listedTypes + ', ' + debugType
+            loop += 1
+        return listedTypes
+
+    def runConcurrentThread(self):
+        self.methodTracer.threaddebug(u"CLASS: Plugin")
+
+        # This thread is used to handle responses from Smappee
+        self.sleep(10)
+        try:
+            while True:
+                try:
+                    self.process = self.globals['queues']['process'].get(True, 5)  # Retrieve response from Smappee
+                    try:
+                        self.handleSmappeeResponse(self.process[0], self.process[1],
+                                                   self.process[2])  # Handle response from Smappee
+                    except StandardError, e:
+                        self.generalLogger.error(
+                            u"StandardError detected for function '%s'. Line '%s' has error='%s'" % (
+                                self.process[0], sys.exc_traceback.tb_lineno, e))
+                except Queue.Empty:
+                    if self.stopThread:
+                        raise self.StopThread  # Plugin shutdown request.
+        except self.StopThread:
+            # Optionally catch the StopThread exception and do any needed cleanup.
+            self.generalLogger.debug(u"runConcurrentThread being stopped")
 
     def getDeviceFactoryUiValues(self, devIdList):
-        global pluginGlobal
-        autolog(METHOD, u"%s; devIdList = [%s]" %  (methodNameForTrace(), devIdList))  
+        self.methodTracer.threaddebug(u"getDeviceFactoryUiValues: devIdList = [%s]" % devIdList)
 
         valuesDict = indigo.Dict()
         errorMsgDict = indigo.Dict()
@@ -860,10 +526,12 @@ class Plugin(indigo.PluginBase):
         self.deviceDetectedSmappeeAppliance = False
         self.deviceDetectedSmappeeActuator = False
 
-        if len(pluginGlobal['smappeeServiceLocationIdToDevId']) == 1:
-            self.smappeeServiceLocationId = pluginGlobal['smappeeServiceLocationIdToDevId'].keys()[0]
-            self.smappeeServiceLocationName = pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['name']
-            valuesDict["smappeeLocationValue"] = str("%s: %s" % (self.smappeeServiceLocationId, self.smappeeServiceLocationName))
+        if len(self.globals['smappeeServiceLocationIdToDevId']) == 1:
+            self.smappeeServiceLocationId = self.globals['smappeeServiceLocationIdToDevId'].keys()[0]
+            self.smappeeServiceLocationName = self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                'name']
+            valuesDict["smappeeLocationValue"] = str(
+                "%s: %s" % (self.smappeeServiceLocationId, self.smappeeServiceLocationName))
             valuesDict["hideSmappeeLocationValue"] = "false"
             valuesDict["hideSmappeeLocationList"] = "true"
         else:
@@ -871,7 +539,6 @@ class Plugin(indigo.PluginBase):
             self.smappeeServiceLocationName = "Unknown Smappee Location!"
             valuesDict["hideSmappeeLocationValue"] = "true"
             valuesDict["hideSmappeeLocationList"] = "false"
-     
 
         if len(devIdList) == 0:
             valuesDict["smappeeFunction"] = 'New...'
@@ -891,89 +558,106 @@ class Plugin(indigo.PluginBase):
         valuesDict = self._prepareGetDefinedSmappeeActuatorList(valuesDict)
         valuesDict = self._prepareGetPotentialSmappeeActuatorList(valuesDict)
 
-        autolog(METHOD, u" getDeviceFactoryUiValues [END]: EL-Detect=[%s], SO-Detect=[%s],  GW-Detect=[%s], AP-Detect=[%s], AC-Detect=[%s]" % (self.deviceDetectedSmappeeElectricity, self.deviceDetectedSmappeeSolar, self.deviceDetectedSmappeeSensor, self.deviceDetectedSmappeeAppliance , self.deviceDetectedSmappeeActuator))   
+        self.generalLogger.info(
+            u"getDeviceFactoryUiValues [END]: EL-Detect=[%s], SO-Detect=[%s],  GW-Detect=[%s], AP-Detect=[%s], AC-Detect=[%s]" % (
+                self.deviceDetectedSmappeeElectricity, self.deviceDetectedSmappeeSolar,
+                self.deviceDetectedSmappeeSensor,
+                self.deviceDetectedSmappeeAppliance, self.deviceDetectedSmappeeActuator))
 
-        return (valuesDict, errorMsgDict)
+        return valuesDict, errorMsgDict
 
     def validateDeviceFactoryUi(self, valuesDict, devIdList):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: Plugin")
 
         errorsDict = indigo.Dict()
-        return (True, valuesDict, errorsDict)
+        return True, valuesDict, errorsDict
 
     def closedDeviceFactoryUi(self, valuesDict, userCancelled, devIdList):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))
+        self.methodTracer.threaddebug(u"CLASS: Plugin")
 
-        if self.monitorDeviceProcessed == True:
-            autolog(INFO, u"Devices changed via 'Define and Sync' - restarting SMAPPEE Plugin . . . . .")
+        if self.monitorDeviceProcessed:
+            self.generalLogger.info(u"Devices changed via 'Define and Sync' - restarting SMAPPEE Plugin . . . . .")
 
             serverPlugin = indigo.server.getPlugin(self.pluginId)
             serverPlugin.restart(waitUntilDone=False)
             return
-  
-        if userCancelled == False:
-            for sensorId in sorted(pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds']):
-                if pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds'][sensorId]['queued-add'] == True:
+
+        if not userCancelled:
+            for sensorId in sorted(
+                    self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds']):
+                if \
+                        self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds'][
+                            sensorId][
+                            'queued-add']:
                     serviceLocationId = self.smappeeServiceLocationId
-                    serviceLocationName = pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['name']
+                    serviceLocationName = \
+                        self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['name']
                     address = sensorId
-                    name = pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds'][sensorId]['name']
-                    deviceType = pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds'][sensorId]['deviceType']
+                    name = self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds'][
+                        sensorId]['name']
+                    deviceType = \
+                        self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds'][
+                            sensorId]['deviceType']
 
-                    self.processQueue.put(['NEW_SENSOR', serviceLocationId, (serviceLocationName, address, name)])
+                    self.globals['queues']['process'].put(['NEW_SENSOR', serviceLocationId, (serviceLocationName, address, name)])
 
-            for applianceId in sorted(pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds']):
-                if pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds'][applianceId]['queued-add'] == True:
+            for applianceId in sorted(
+                    self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds']):
+                if self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds'][
+                        applianceId]['queued-add']:
                     serviceLocationId = self.smappeeServiceLocationId
-                    serviceLocationName = pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['name']
+                    serviceLocationName = \
+                        self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['name']
                     address = applianceId
-                    name = pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds'][applianceId]['name']
+                    name = \
+                        self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds'][
+                            applianceId]['name']
 
-                    self.processQueue.put(["NEW_APPLIANCE", serviceLocationId, (serviceLocationName, address, name)])
+                    self.globals['queues']['process'].put(["NEW_APPLIANCE", serviceLocationId, (serviceLocationName, address, name)])
 
-            for actuatorId in sorted(pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds']):
-                if pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds'][actuatorId]['queued-add'] == True:
+            for actuatorId in sorted(
+                    self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds']):
+                if self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds'][
+                        actuatorId]['queued-add']:
                     serviceLocationId = self.smappeeServiceLocationId
-                    serviceLocationName = pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['name']
+                    serviceLocationName = \
+                        self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['name']
                     address = actuatorId
-                    name = pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds'][actuatorId]['name']
+                    name = \
+                        self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds'][
+                            actuatorId]['name']
 
-                    self.processQueue.put(["NEW_ACTUATOR", serviceLocationId, (serviceLocationName, address, name)])
+                    self.globals['queues']['process'].put(["NEW_ACTUATOR", serviceLocationId, (serviceLocationName, address, name)])
 
         else:
-            for sensorId in sorted(pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds']):
-                pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds'][sensorId]['queued-add'] == False
-                pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds'][sensorId]['queued-remove'] = False          
-            for applianceId in sorted(pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds']):
-                pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds'][applianceId]['queued-add'] == False
-                pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds'][applianceId]['queued-remove'] = False          
-            for actuatorId in sorted(pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds']):
-                pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds'][actuatorId]['queued-add'] == False
-                pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds'][actuatorId]['queued-remove'] == False
-
+            for sensorId in sorted(
+                    self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds']):
+                self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds'][sensorId][
+                    'queued-add'] = False
+                self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds'][sensorId][
+                    'queued-remove'] = False
+            for applianceId in sorted(
+                    self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds']):
+                self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds'][
+                    applianceId]['queued-add'] = False
+                self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds'][
+                    applianceId]['queued-remove'] = False
+            for actuatorId in sorted(
+                    self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds']):
+                self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds'][
+                    actuatorId]['queued-add'] = False
+                self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds'][
+                    actuatorId]['queued-remove'] = False
 
         return
 
-
-        # Not executed - testing example
-        plugin = indigo.server.getPlugin("com.autologplugin.indigoplugin.smappeecontroller")
-        if plugin.isEnabled():
-            plugin.restart()
-
-
-
     def _getSmappeeLocationList(self, filter="", valuesDict=None, typeId="", targetId=0):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: _getSmappeeLocationList")
 
         return self.listItemsSmappeeLocationList
 
-
     def _prepareGetSmappeeLocationList(self, valuesDict, devIdList):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: _prepareGetSmappeeLocationList")
 
         valuesDict["hideSmappeeLocationValue"] = "true"
         valuesDict["hideSmappeeLocationList"] = "false"
@@ -981,24 +665,29 @@ class Plugin(indigo.PluginBase):
         listToDisplay = []
         self.locationCount = 0
         self.locationAvailableCount = 0
-        for self.smappeeServiceLocationId in sorted(pluginGlobal['smappeeServiceLocationIdToDevId']):
-            self.serviceLocationName = pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['name'] 
+        for self.smappeeServiceLocationId in sorted(self.globals['smappeeServiceLocationIdToDevId']):
+            self.serviceLocationName = self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId][
+                'name']
             self.locationCount += 1
-            if pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['electricityId'] == 0 and pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['solarId'] == 0:
+            if self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['electricityId'] == 0 and \
+                    self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['solarId'] == 0:
                 listToDisplay.append((self.smappeeServiceLocationId, self.serviceLocationName))
-                self.locationAvailableCount +=1
+                self.locationAvailableCount += 1
             else:
-                self.serviceLocationName = str("Location '%s:%s' assigned to Smappee" % (self.smappeeServiceLocationId, pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['name']))  
+                self.serviceLocationName = str("Location '%s:%s' assigned to Smappee" % (self.smappeeServiceLocationId,
+                                                                                         self.globals[
+                                                                                             'smappeeServiceLocationIdToDevId'][
+                                                                                             self.smappeeServiceLocationId][
+                                                                                             'name']))
                 listToDisplay.append((self.smappeeServiceLocationId, self.serviceLocationName))
 
         if self.locationCount == 0:
-            listToDisplay = []
-            listToDisplay.append(("NONE","No Smappee locations found"))
+            listToDisplay = ["NONE", "No Smappee locations found"]
         else:
             if self.locationAvailableCount == 0:
-                listToDisplay.insert(0, ("NONE","All location(s) already assigned"))
+                listToDisplay.insert(0, ("NONE", "All location(s) already assigned"))
             else:
-                listToDisplay.insert(0, ("NONE","- Select Smappee Location -"))
+                listToDisplay.insert(0, ("NONE", "- Select Smappee Location -"))
 
             if self.locationCount == 1:
                 # As only one location, don't display list and skip striaght to displaying value
@@ -1006,13 +695,11 @@ class Plugin(indigo.PluginBase):
                 valuesDict["hideSmappeeLocationList"] = "true"
 
         self.listItemsSmappeeLocationList = listToDisplay
-            
+
         return valuesDict
 
-
     def _smappeeLocationSelected(self, valuesDict, typeId, devIdList):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: _smappeeLocationSelected")
 
         self.deviceDetectedSmappeeElectricity = False
         self.deviceDetectedSmappeeSolar = False
@@ -1022,32 +709,34 @@ class Plugin(indigo.PluginBase):
         if "smappeeLocationList" in valuesDict:
             self.smappeeServiceLocationId = valuesDict["smappeeLocationList"]
             if self.smappeeServiceLocationId != 'NONE':
-                if self.smappeeServiceLocationId in pluginGlobal['smappeeServiceLocationIdToDevId']:
-                    self.smappeeServiceLocationName = pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['name']
+                if self.smappeeServiceLocationId in self.globals['smappeeServiceLocationIdToDevId']:
+                    self.smappeeServiceLocationName = \
+                        self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['name']
                     valuesDict["hideSmappeeLocationValue"] = "false"
                     valuesDict["hideSmappeeLocationList"] = "true"
 
-                    valuesDict["smappeeLocationValue"] = str("%s: %s" % (self.smappeeServiceLocationId, self.smappeeServiceLocationName))
-                    if pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['electricityId'] != 0:
+                    valuesDict["smappeeLocationValue"] = str(
+                        "%s: %s" % (self.smappeeServiceLocationId, self.smappeeServiceLocationName))
+                    if self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId][
+                            'electricityId'] != 0:
                         self.deviceDetectedSmappeeElectricity = True
-                    if pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['solarId'] != 0:
+                    if self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['solarId'] != 0:
                         self.deviceDetectedSmappeeSolar = True
 
-                    if self.deviceDetectedSmappeeElectricity == True:
+                    if self.deviceDetectedSmappeeElectricity:
                         valuesDict["removeSmappeeElectricityDeviceEnabled"] = 'true'
-                    else:   
+                    else:
                         valuesDict["addSmappeeElectricityDeviceEnabled"] = 'true'
 
-                    if self.deviceDetectedSmappeeSolar == True:
+                    if self.deviceDetectedSmappeeSolar:
                         valuesDict["removeSmappeeSolarDeviceEnabled"] = 'true'
-                    else:   
+                    else:
                         valuesDict["addSmappeeSolarDeviceEnabled"] = 'true'
             else:
 
                 valuesDict["hideSmappeeLocationValue"] = "true"
                 valuesDict["hideSmappeeLocationList"] = "false"
 
-                
                 valuesDict["addSmappeeElectricityDeviceEnabled"] = 'false'
                 valuesDict["removeSmappeeElectricityDeviceEnabled"] = 'false'
                 valuesDict["addSmappeeSolarDeviceEnabled"] = 'false'
@@ -1057,19 +746,15 @@ class Plugin(indigo.PluginBase):
 
         return valuesDict
 
-
     def _getDefinedSmappeeElectricitySolarList(self, filter, valuesDict, devIdList):
-        global pluginGlobal
-        autolog(METHOD, u"%s; LOC=[%s]" %  (methodNameForTrace(), self.smappeeServiceLocationId))  
+        self.methodTracer.threaddebug(
+            u"CLASS: _getDefinedSmappeeElectricitySolarList; LOC=[%s]" % self.smappeeServiceLocationId)
 
         return self.listItemsDefinedSmappeeMainList
 
-
-
     def _prepareSmappeeList(self, valuesDict, devIdList):
 
-        global pluginGlobal
-        autolog(METHOD, u"%s; LOC=[%s]" %  (methodNameForTrace(), self.smappeeServiceLocationId))  
+        self.methodTracer.threaddebug(u"CLASS: _prepareSmappeeList; LOC=[%s]" % self.smappeeServiceLocationId)
 
         listToDisplay = []
 
@@ -1094,50 +779,49 @@ class Plugin(indigo.PluginBase):
         solarDevId = 0
         solarUsedDevId = 0
         solarExportedDevId = 0
-        autolog(FACTORY, u"SMAPPEE [F-0]: _prepareSmappeeList")
+        self.deviceFactoryLogger.debug(u"SMAPPEE [F-0]: _prepareSmappeeList")
 
         for dev in indigo.devices.iter("self"):
-            autolog(FACTORY, u"SMAPPEE [F-1]: %s [devTypeId = %s]" % (dev.name, dev.deviceTypeId))
+            self.deviceFactoryLogger.debug(u"SMAPPEE [F-1]: %s [devTypeId = %s]" % (dev.name, dev.deviceTypeId))
             if dev.deviceTypeId == "smappeeElectricity" or dev.deviceTypeId == "smappeeElectricityNet" or dev.deviceTypeId == "smappeeElectricitySaved" or dev.deviceTypeId == "smappeeSolar" or dev.deviceTypeId == "smappeeSolarUsed" or dev.deviceTypeId == "smappeeSolarExported":
 
-                autolog(FACTORY, u"SMAPPEE [F-2]: %s [devTypeId = %s]" % (dev.name, dev.deviceTypeId))
-
+                self.deviceFactoryLogger.debug(u"SMAPPEE [F-2]: %s [devTypeId = %s]" % (dev.name, dev.deviceTypeId))
 
                 if dev.pluginProps['serviceLocationId'] == self.smappeeServiceLocationId:
                     smappeeMainDeviceDetected = True
                     devName = dev.name
                     listToDisplay.append((dev.id, devName))
-                    if dev.deviceTypeId == "smappeeElectricity" :
+                    if dev.deviceTypeId == "smappeeElectricity":
                         electricityDevId = dev.id
                         valuesDict["addSmappeeElectricityDeviceEnabled"] = 'false'
                         valuesDict["removeSmappeeElectricityDeviceEnabled"] = 'true'
-                    elif dev.deviceTypeId == "smappeeElectricityNet" :
+                    elif dev.deviceTypeId == "smappeeElectricityNet":
                         electricityNetDevId = dev.id
                         valuesDict["addSmappeeElectricityNetDeviceEnabled"] = 'false'
                         valuesDict["removeSmappeeElectricityNetDeviceEnabled"] = 'true'
-                    elif dev.deviceTypeId == "smappeeElectricitySaved" :
+                    elif dev.deviceTypeId == "smappeeElectricitySaved":
                         electricitySavedDevId = dev.id
                         valuesDict["addSmappeeElectricitySavedDeviceEnabled"] = 'false'
                         valuesDict["removeSmappeeElectricitySavedDeviceEnabled"] = 'true'
-                    elif dev.deviceTypeId == "smappeeSolar" :
+                    elif dev.deviceTypeId == "smappeeSolar":
                         solarDevId = dev.id
                         valuesDict["addSmappeeSolarDeviceEnabled"] = 'false'
                         valuesDict["removeSmappeeSolarDeviceEnabled"] = 'true'
-                    elif dev.deviceTypeId == "smappeeSolarUsed" :
+                    elif dev.deviceTypeId == "smappeeSolarUsed":
                         solarUsedDevId = dev.id
                         valuesDict["addSmappeeSolarUsedDeviceEnabled"] = 'false'
                         valuesDict["removeSmappeeSolarUsedDeviceEnabled"] = 'true'
-                    elif dev.deviceTypeId == "smappeeSolarExported" :
+                    elif dev.deviceTypeId == "smappeeSolarExported":
                         solarUsedDevId = dev.id
                         valuesDict["addSmappeeSolarExportedDeviceEnabled"] = 'false'
                         valuesDict["removeSmappeeSolarExportedDeviceEnabled"] = 'true'
                     else:
-                        autolog(ERROR, u"SMAPPEE [F-E]: %s [devTypeId = %s] UNKNOWN" % (dev.name, dev.deviceTypeId))
+                        self.generalLogger.error(
+                            u"SMAPPEE [F-E]: %s [devTypeId = %s] UNKNOWN" % (dev.name, dev.deviceTypeId))
 
-                    autolog(FACTORY, u"SMAPPEE [F-3]: %s [devTypeId = %s]" % (dev.name, dev.deviceTypeId))
+                    self.deviceFactoryLogger.debug(u"SMAPPEE [F-3]: %s [devTypeId = %s]" % (dev.name, dev.deviceTypeId))
 
-
-        if smappeeMainDeviceDetected == False:
+        if not smappeeMainDeviceDetected:
             if len(devIdList) != 0:
                 valuesDict["addSmappeeElectricityDeviceEnabled"] = 'false'
                 valuesDict["addSmappeeSolarDeviceEnabled"] = 'false'
@@ -1158,7 +842,9 @@ class Plugin(indigo.PluginBase):
                 valuesDict["helpSmappeeElectricitySolarEnabled"] = 'true'
             else:
                 # Must be Edit...
-                if devIdList[0] != electricityDevId and devIdList[0] != electricityNetDevId and devIdList[0] != electricitySavedDevId and devIdList[0] != solarDevId and devIdList[0] != solarUsedDevId and devIdList[0] != solarExportedDevId:
+                if devIdList[0] != electricityDevId and devIdList[0] != electricityNetDevId and devIdList[
+                    0] != electricitySavedDevId and devIdList[0] != solarDevId and devIdList[0] != solarUsedDevId and \
+                        devIdList[0] != solarExportedDevId:
                     # Is Edit... but main device not selected
                     valuesDict["addSmappeeElectricityDeviceEnabled"] = 'false'
                     valuesDict["removeSmappeeElectricityDeviceEnabled"] = 'false'
@@ -1173,12 +859,18 @@ class Plugin(indigo.PluginBase):
                     valuesDict["addSmappeeSolarExportedDeviceEnabled"] = 'false'
                     valuesDict["removeSmappeeSolarExportedDeviceEnabled"] = 'false'
 
-        if (valuesDict["addSmappeeElectricityDeviceEnabled"]          == 'false' and valuesDict["removeSmappeeElectricityDeviceEnabled"]      == 'false' and 
-                valuesDict["addSmappeeElectricityNetDeviceEnabled"]   == 'false' and valuesDict["removeSmappeeElectricityNetDeviceEnabled"]   == 'false' and 
-                valuesDict["addSmappeeElectricitySavedDeviceEnabled"] == 'false' and valuesDict["removeSmappeeElectricitySavedDeviceEnabled"] == 'false' and 
-                valuesDict["addSmappeeSolarDeviceEnabled"]            == 'false' and valuesDict["removeSmappeeSolarDeviceEnabled"]            == 'false' and 
-                valuesDict["addSmappeeSolarUsedDeviceEnabled"]        == 'false' and valuesDict["removeSmappeeSolarUsedDeviceEnabled"]        == 'false' and 
-                valuesDict["addSmappeeSolarExportedDeviceEnabled"]    == 'false' and valuesDict["removeSmappeeSolarExportedDeviceEnabled"]    == 'false'):
+        if (valuesDict["addSmappeeElectricityDeviceEnabled"] == 'false' and valuesDict[
+            "removeSmappeeElectricityDeviceEnabled"] == 'false' and
+                valuesDict["addSmappeeElectricityNetDeviceEnabled"] == 'false' and valuesDict[
+                    "removeSmappeeElectricityNetDeviceEnabled"] == 'false' and
+                valuesDict["addSmappeeElectricitySavedDeviceEnabled"] == 'false' and valuesDict[
+                    "removeSmappeeElectricitySavedDeviceEnabled"] == 'false' and
+                valuesDict["addSmappeeSolarDeviceEnabled"] == 'false' and valuesDict[
+                    "removeSmappeeSolarDeviceEnabled"] == 'false' and
+                valuesDict["addSmappeeSolarUsedDeviceEnabled"] == 'false' and valuesDict[
+                    "removeSmappeeSolarUsedDeviceEnabled"] == 'false' and
+                valuesDict["addSmappeeSolarExportedDeviceEnabled"] == 'false' and valuesDict[
+                    "removeSmappeeSolarExportedDeviceEnabled"] == 'false'):
             valuesDict["helpSmappeeElectricitySolarEnabled"] = 'true'
         else:
             valuesDict["helpSmappeeElectricitySolarEnabled"] = 'false'
@@ -1187,40 +879,40 @@ class Plugin(indigo.PluginBase):
             listToDisplay.append((0, "- No Smappee Devices Defined -"))
 
         self.listItemsDefinedSmappeeMainList = listToDisplay
-            
+
         return valuesDict
 
-
     def _addSmappeeElectricityDevice(self, valuesDict, devIdList):
-        global pluginGlobal
-        autolog(METHOD, u"%s; Location[%s:%s]" %  (methodNameForTrace(), self.smappeeServiceLocationId, self.smappeeServiceLocationName))
+        self.methodTracer.threaddebug(u"CLASS: _addSmappeeElectricityDevice; Location[%s:%s]" % (
+            self.smappeeServiceLocationId, self.smappeeServiceLocationName))
 
         self.monitorDeviceProcessed = True  # Forces Plugin to restart when the Device Factory dialogue is closed or cancelled 
 
         newdev = indigo.device.create(protocol=indigo.kProtocol.Plugin,
-                    address="E000",
-                    name="Smappee Electricity V2",
-                    description="Smappee", 
-                    pluginId="com.autologplugin.indigoplugin.smappeecontroller",
-                    deviceTypeId="smappeeElectricity",
-                    folder=pluginGlobal['deviceFolderId'],
-                    props={"SupportsEnergyMeter":True, 
-                           "SupportsEnergyMeterCurPower":True, 
-                           "serviceLocationId":self.smappeeServiceLocationId, 
-                           "serviceLocationName":self.smappeeServiceLocationName, 
-                           "optionsEnergyMeterCurPower":"last", 
-                           "hideEnergyMeterCurPower":False, 
-                           "hideEnergyMeterAccumPower":False,  
-                           "hideAlwaysOnPower":True,
-                           "dailyStandingCharge":"0.00",
-                           "kwhUnitCost":"0.00"})
+                                      address="E000",
+                                      name="Smappee Electricity V2",
+                                      description="Smappee",
+                                      pluginId="com.autologplugin.indigoplugin.smappeecontroller",
+                                      deviceTypeId="smappeeElectricity",
+                                      folder=self.globals['devicesFolderId'],
+                                      props={"SupportsEnergyMeter": True,
+                                             "SupportsEnergyMeterCurPower": True,
+                                             "serviceLocationId": self.smappeeServiceLocationId,
+                                             "serviceLocationName": self.smappeeServiceLocationName,
+                                             "optionsEnergyMeterCurPower": "last",
+                                             "hideEnergyMeterCurPower": False,
+                                             "hideEnergyMeterAccumPower": False,
+                                             "hideAlwaysOnPower": True,
+                                             "dailyStandingCharge": "0.00",
+                                             "kwhUnitCost": "0.00"})
         newdev.model = "Smappee"
-        newdev.subModel = "Elec."       # Manually need to set the model and subModel names (for UI only)
+        newdev.subModel = "Elec."  # Manually need to set the model and subModel names (for UI only)
         newdev.configured = True
         newdev.enabled = True
         newdev.replaceOnServer()
 
-        self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeElectricity', self.smappeeServiceLocationId, newdev.id, "", "")
+        self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeElectricity', self.smappeeServiceLocationId,
+                                                newdev.id, "", "")
 
         valuesDict["addSmappeeElectricityDeviceEnabled"] = 'false'
         valuesDict["removeSmappeeElectricityDeviceEnabled"] = 'true'
@@ -1231,10 +923,8 @@ class Plugin(indigo.PluginBase):
 
         return valuesDict
 
- 
     def _removeSmappeeElectricityDevice(self, valuesDict, devIdList):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: _removeSmappeeElectricityDevice")
 
         self.monitorDeviceProcessed = True  # Forces Plugin to restart when the Device Factory dialogue is closed or cancelled 
 
@@ -1242,20 +932,21 @@ class Plugin(indigo.PluginBase):
             try:
                 if dev.deviceTypeId == "smappeeElectricity":
                     serviceLocationId = dev.pluginProps['serviceLocationId']
-                    self.setSmappeeServiceLocationIdToDevId('STOP', 'smappeeElectricity', serviceLocationId, dev.id, "", "")
+                    self.setSmappeeServiceLocationIdToDevId('STOP', 'smappeeElectricity', serviceLocationId, dev.id, "",
+                                                            "")
 
-                    if dev.id in pluginGlobal['smappees']:
-                        pluginGlobal['smappees'].pop(dev.id, None)
-                        autolog(FACTORY, u"_removeSmappeeElectricityDevice = POPPED")
+                    if dev.id in self.globals['smappees']:
+                        self.globals['smappees'].pop(dev.id, None)
+                        self.deviceFactoryLogger.debug(u"_removeSmappeeElectricityDevice = POPPED")
 
                     indigo.device.delete(dev)
 
-                    pluginGlobal['config']['supportsElectricity'] = False
+                    self.globals['config']['supportsElectricity'] = False
 
-                    autolog(FACTORY, u"_removeSmappeeElectricityDevice = DELETED")
+                    self.deviceFactoryLogger.debug(u"_removeSmappeeElectricityDevice = DELETED")
             except:
-                autolog(FACTORY, u"_removeSmappeeElectricityDevice = EXCEPTION")   
-                pass    # delete doesn't allow (throws) on root elem
+                self.deviceFactoryLogger.debug(u"_removeSmappeeElectricityDevice = EXCEPTION")
+                pass  # delete doesn't allow (throws) on root elem
 
         valuesDict["addSmappeeElectricityDeviceEnabled"] = 'true'
         valuesDict["removeSmappeeElectricityDeviceEnabled"] = 'false'
@@ -1264,37 +955,36 @@ class Plugin(indigo.PluginBase):
 
         return valuesDict
 
-
     def _addSmappeeElectricityNetDevice(self, valuesDict, devIdList):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: _addSmappeeElectricityNetDevice")
 
         self.monitorDeviceProcessed = True  # Forces Plugin to restart when the Device Factory dialogue is closed or cancelled 
 
         newdev = indigo.device.create(protocol=indigo.kProtocol.Plugin,
-                    address="EN00",
-                    name="Smappee Net Electricity V2",
-                    description="Smappee", 
-                    pluginId="com.autologplugin.indigoplugin.smappeecontroller",
-                    deviceTypeId="smappeeElectricityNet",
-                    folder=pluginGlobal['deviceFolderId'],
-                    props={"SupportsEnergyMeter":True, 
-                           "SupportsEnergyMeterCurPower":True, 
-                           "serviceLocationId":self.smappeeServiceLocationId, 
-                           "serviceLocationName":self.smappeeServiceLocationName, 
-                           "optionsEnergyMeterCurPower":"last", 
-                           "hideEnergyMeterCurNetPower":False,
-                           "hideEnergyMeterCurZeroNetPower":True, 
-                           "hideEnergyMeterAccumNetPower":False,
-                           "hideNoChangeEnergyMeterAccumNetPower":True})
+                                      address="EN00",
+                                      name="Smappee Net Electricity V2",
+                                      description="Smappee",
+                                      pluginId="com.autologplugin.indigoplugin.smappeecontroller",
+                                      deviceTypeId="smappeeElectricityNet",
+                                      folder=self.globals['devicesFolderId'],
+                                      props={"SupportsEnergyMeter": True,
+                                             "SupportsEnergyMeterCurPower": True,
+                                             "serviceLocationId": self.smappeeServiceLocationId,
+                                             "serviceLocationName": self.smappeeServiceLocationName,
+                                             "optionsEnergyMeterCurPower": "last",
+                                             "hideEnergyMeterCurNetPower": False,
+                                             "hideEnergyMeterCurZeroNetPower": True,
+                                             "hideEnergyMeterAccumNetPower": False,
+                                             "hideNoChangeEnergyMeterAccumNetPower": True})
 
         newdev.model = "Smappee"
-        newdev.subModel = "E-Net"      # Manually need to set the model and subModel names (for UI only)
+        newdev.subModel = "E-Net"  # Manually need to set the model and subModel names (for UI only)
         newdev.configured = True
         newdev.enabled = True
         newdev.replaceOnServer()
 
-        self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeElectricityNet', self.smappeeServiceLocationId, newdev.id, "", "")
+        self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeElectricityNet', self.smappeeServiceLocationId,
+                                                newdev.id, "", "")
 
         valuesDict["addSmappeeElectricityNetDeviceEnabled"] = 'false'
         valuesDict["removeSmappeeElectricityNetDeviceEnabled"] = 'true'
@@ -1305,10 +995,8 @@ class Plugin(indigo.PluginBase):
 
         return valuesDict
 
-
     def _removeSmappeeElectricityNetDevice(self, valuesDict, devIdList):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: _removeSmappeeElectricityNetDevice")
 
         self.monitorDeviceProcessed = True  # Forces Plugin to restart when the Device Factory dialogue is closed or cancelled 
 
@@ -1316,21 +1004,22 @@ class Plugin(indigo.PluginBase):
             try:
                 if dev.deviceTypeId == "smappeeElectricityNet":
                     serviceLocationId = dev.pluginProps['serviceLocationId']
-                    
-                    self.setSmappeeServiceLocationIdToDevId('STOP', 'smappeeElectricityNet', serviceLocationId, dev.id, "", "")
 
-                    if dev.id in pluginGlobal['smappees']:
-                        pluginGlobal['smappees'].pop(dev.id, None)
-                        autolog(FACTORY, u"_removeSmappeeElectricityNetDevice = POPPED")   
+                    self.setSmappeeServiceLocationIdToDevId('STOP', 'smappeeElectricityNet', serviceLocationId, dev.id,
+                                                            "", "")
+
+                    if dev.id in self.globals['smappees']:
+                        self.globals['smappees'].pop(dev.id, None)
+                        self.deviceFactoryLogger.debug(u"_removeSmappeeElectricityNetDevice = POPPED")
 
                     indigo.device.delete(dev)
 
-                    pluginGlobal['config']['supportsElectricityNet'] = False
+                    self.globals['config']['supportsElectricityNet'] = False
 
-                    autolog(FACTORY, u"_removeSmappeeElectricityNetDevice = DELETED")
+                    self.deviceFactoryLogger.debug(u"_removeSmappeeElectricityNetDevice = DELETED")
             except:
-                autolog(FACTORY, u"_removeSmappeeElectricityNetDevice = EXCEPTION")   
-                pass    # delete doesn't allow (throws) on root elem
+                self.deviceFactoryLogger.debug(u"_removeSmappeeElectricityNetDevice = EXCEPTION")
+                pass  # delete doesn't allow (throws) on root elem
 
         valuesDict["addSmappeeElectricityNetDeviceEnabled"] = 'true'
         valuesDict["removeSmappeeElectricityNetDeviceEnabled"] = 'false'
@@ -1339,37 +1028,36 @@ class Plugin(indigo.PluginBase):
 
         return valuesDict
 
-
     def _addSmappeeElectricitySavedDevice(self, valuesDict, devIdList):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: _addSmappeeElectricitySavedDevice")
 
         self.monitorDeviceProcessed = True  # Forces Plugin to restart when the Device Factory dialogue is closed or cancelled 
 
         newdev = indigo.device.create(protocol=indigo.kProtocol.Plugin,
-                    address="ES00",
-                    name="Smappee Saved Electricity V2",
-                    description="Smappee", 
-                    pluginId="com.autologplugin.indigoplugin.smappeecontroller",
-                    deviceTypeId="smappeeElectricitySaved",
-                    folder=pluginGlobal['deviceFolderId'],
-                    props={"SupportsEnergyMeter":True, 
-                           "SupportsEnergyMeterCurPower":True, 
-                           "serviceLocationId":self.smappeeServiceLocationId, 
-                           "serviceLocationName":self.smappeeServiceLocationName, 
-                           "optionsEnergyMeterCurPower":"last", 
-                           "hideEnergyMeterCurSavedPower":False,
-                           "hideEnergyMeterCurZeroSavedPower":True, 
-                           "hideEnergyMeterAccumSavedPower":False,
-                           "hideNoChangeEnergyMeterAccumSavedPower":True})
+                                      address="ES00",
+                                      name="Smappee Saved Electricity V2",
+                                      description="Smappee",
+                                      pluginId="com.autologplugin.indigoplugin.smappeecontroller",
+                                      deviceTypeId="smappeeElectricitySaved",
+                                      folder=self.globals['devicesFolderId'],
+                                      props={"SupportsEnergyMeter": True,
+                                             "SupportsEnergyMeterCurPower": True,
+                                             "serviceLocationId": self.smappeeServiceLocationId,
+                                             "serviceLocationName": self.smappeeServiceLocationName,
+                                             "optionsEnergyMeterCurPower": "last",
+                                             "hideEnergyMeterCurSavedPower": False,
+                                             "hideEnergyMeterCurZeroSavedPower": True,
+                                             "hideEnergyMeterAccumSavedPower": False,
+                                             "hideNoChangeEnergyMeterAccumSavedPower": True})
 
         newdev.model = "Smappee"
-        newdev.subModel = "E-Saved"      # Manually need to set the model and subModel names (for UI only)
+        newdev.subModel = "E-Saved"  # Manually need to set the model and subModel names (for UI only)
         newdev.configured = True
         newdev.enabled = True
         newdev.replaceOnServer()
 
-        self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeElectricitySaved', self.smappeeServiceLocationId, newdev.id, "", "")
+        self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeElectricitySaved', self.smappeeServiceLocationId,
+                                                newdev.id, "", "")
 
         valuesDict["addSmappeeElectricitySavedDeviceEnabled"] = 'false'
         valuesDict["removeSmappeeElectricitySavedDeviceEnabled"] = 'true'
@@ -1380,10 +1068,8 @@ class Plugin(indigo.PluginBase):
 
         return valuesDict
 
-
     def _removeSmappeeElectricitySavedDevice(self, valuesDict, devIdList):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: _removeSmappeeElectricitySavedDevice")
 
         self.monitorDeviceProcessed = True  # Forces Plugin to restart when the Device Factory dialogue is closed or cancelled 
 
@@ -1391,21 +1077,22 @@ class Plugin(indigo.PluginBase):
             try:
                 if dev.deviceTypeId == "smappeeElectricitySaved":
                     serviceLocationId = dev.pluginProps['serviceLocationId']
-                    
-                    self.setSmappeeServiceLocationIdToDevId('STOP', 'smappeeElectricitySaved', serviceLocationId, dev.id, "", "")
 
-                    if dev.id in pluginGlobal['smappees']:
-                        pluginGlobal['smappees'].pop(dev.id, None)
-                        autolog(FACTORY, u"_removeSmappeeElectricitySavedDevice = POPPED")   
+                    self.setSmappeeServiceLocationIdToDevId('STOP', 'smappeeElectricitySaved', serviceLocationId,
+                                                            dev.id, "", "")
+
+                    if dev.id in self.globals['smappees']:
+                        self.globals['smappees'].pop(dev.id, None)
+                        self.deviceFactoryLogger.debug(u"_removeSmappeeElectricitySavedDevice = POPPED")
 
                     indigo.device.delete(dev)
 
-                    pluginGlobal['config']['supportsElectricitySaved'] = False
+                    self.globals['config']['supportsElectricitySaved'] = False
 
-                    autolog(FACTORY, u"_removeSmappeeElectricitySavedDevice = DELETED")
+                    self.deviceFactoryLogger.debug(u"_removeSmappeeElectricitySavedDevice = DELETED")
             except:
-                autolog(FACTORY, u"_removeSmappeeElectricitySavedDevice = EXCEPTION")   
-                pass    # delete doesn't allow (throws) on root elem
+                self.deviceFactoryLogger.debug(u"_removeSmappeeElectricitySavedDevice = EXCEPTION")
+                pass  # delete doesn't allow (throws) on root elem
 
         valuesDict["addSmappeeElectricitySavedDeviceEnabled"] = 'true'
         valuesDict["removeSmappeeElectricitySavedDeviceEnabled"] = 'false'
@@ -1414,41 +1101,40 @@ class Plugin(indigo.PluginBase):
 
         return valuesDict
 
-
     def _addSmappeeSolarDevice(self, valuesDict, devIdList):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: _addSmappeeSolarDevice")
 
         self.monitorDeviceProcessed = True  # Forces Plugin to restart when the Device Factory dialogue is closed or cancelled 
 
         newdev = indigo.device.create(protocol=indigo.kProtocol.Plugin,
-                    address="S000",
-                    name="Smappee Solar PV V2",
-                    description="Smappee", 
-                    pluginId="com.autologplugin.indigoplugin.smappeecontroller",
-                    deviceTypeId="smappeeSolar",
-                    folder=pluginGlobal['deviceFolderId'],
-                    props={"SupportsEnergyMeter":True, 
-                           "SupportsEnergyMeterCurPower":True, 
-                           "serviceLocationId":self.smappeeServiceLocationId, 
-                           "serviceLocationName":self.smappeeServiceLocationName, 
-                           "optionsEnergyMeterCurPower":"last", 
-                           "hideSolarMeterCurGeneration":False,
-                           "hideZeroSolarMeterCurGeneration":True, 
-                           "hideSolarMeterAccumGeneration":False,
-                           "hideNoChangeInSolarMeterAccumGeneration":True,
-                           "generationRate":"0.00",
-                           "exportType":"none",
-                           "exportPercentage":"0.00",
-                           "exportRate":"0.00"})
+                                      address="S000",
+                                      name="Smappee Solar PV V2",
+                                      description="Smappee",
+                                      pluginId="com.autologplugin.indigoplugin.smappeecontroller",
+                                      deviceTypeId="smappeeSolar",
+                                      folder=self.globals['devicesFolderId'],
+                                      props={"SupportsEnergyMeter": True,
+                                             "SupportsEnergyMeterCurPower": True,
+                                             "serviceLocationId": self.smappeeServiceLocationId,
+                                             "serviceLocationName": self.smappeeServiceLocationName,
+                                             "optionsEnergyMeterCurPower": "last",
+                                             "hideSolarMeterCurGeneration": False,
+                                             "hideZeroSolarMeterCurGeneration": True,
+                                             "hideSolarMeterAccumGeneration": False,
+                                             "hideNoChangeInSolarMeterAccumGeneration": True,
+                                             "generationRate": "0.00",
+                                             "exportType": "none",
+                                             "exportPercentage": "0.00",
+                                             "exportRate": "0.00"})
 
         newdev.model = "Smappee"
-        newdev.subModel = "Solar"      # Manually need to set the model and subModel names (for UI only)
+        newdev.subModel = "Solar"  # Manually need to set the model and subModel names (for UI only)
         newdev.configured = True
         newdev.enabled = True
         newdev.replaceOnServer()
 
-        self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeSolar', self.smappeeServiceLocationId, newdev.id, "", "")
+        self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeSolar', self.smappeeServiceLocationId, newdev.id,
+                                                "", "")
 
         valuesDict["addSmappeeSolarDeviceEnabled"] = 'false'
         valuesDict["removeSmappeeSolarDeviceEnabled"] = 'true'
@@ -1459,10 +1145,8 @@ class Plugin(indigo.PluginBase):
 
         return valuesDict
 
-
     def _removeSmappeeSolarDevice(self, valuesDict, devIdList):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: _removeSmappeeSolarDevice")
 
         self.monitorDeviceProcessed = True  # Forces Plugin to restart when the Device Factory dialogue is closed or cancelled 
 
@@ -1470,21 +1154,21 @@ class Plugin(indigo.PluginBase):
             try:
                 if dev.deviceTypeId == "smappeeSolar":
                     serviceLocationId = dev.pluginProps['serviceLocationId']
-                    
+
                     self.setSmappeeServiceLocationIdToDevId('STOP', 'smappeeSolar', serviceLocationId, dev.id, "", "")
 
-                    if dev.id in pluginGlobal['smappees']:
-                        pluginGlobal['smappees'].pop(dev.id, None)
-                        autolog(FACTORY, u"_removeSmappeeSolarDevice = POPPED")   
+                    if dev.id in self.globals['smappees']:
+                        self.globals['smappees'].pop(dev.id, None)
+                        self.deviceFactoryLogger.debug(u"_removeSmappeeSolarDevice = POPPED")
 
                     indigo.device.delete(dev)
 
-                    pluginGlobal['config']['supportsSolar'] = False
+                    self.globals['config']['supportsSolar'] = False
 
-                    autolog(FACTORY, u"_removeSmappeeSolarDevice = DELETED")
+                    self.deviceFactoryLogger.debug(u"_removeSmappeeSolarDevice = DELETED")
             except:
-                autolog(FACTORY, u"_removeSmappeeSolarDevice = EXCEPTION")   
-                pass    # delete doesn't allow (throws) on root elem
+                self.deviceFactoryLogger.debug(u"_removeSmappeeSolarDevice = EXCEPTION")
+                pass  # delete doesn't allow (throws) on root elem
 
         valuesDict["addSmappeeSolarDeviceEnabled"] = 'true'
         valuesDict["removeSmappeeSolarDeviceEnabled"] = 'false'
@@ -1493,37 +1177,36 @@ class Plugin(indigo.PluginBase):
 
         return valuesDict
 
-
     def _addSmappeeSolarUsedDevice(self, valuesDict, devIdList):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: _addSmappeeSolarUsedDevice")
 
         self.monitorDeviceProcessed = True  # Forces Plugin to restart when the Device Factory dialogue is closed or cancelled 
 
         newdev = indigo.device.create(protocol=indigo.kProtocol.Plugin,
-                    address="SU00",
-                    name="Smappee Solar PV Used V2",
-                    description="Smappee", 
-                    pluginId="com.autologplugin.indigoplugin.smappeecontroller",
-                    deviceTypeId="smappeeSolarUsed",
-                    folder=pluginGlobal['deviceFolderId'],
-                    props={"SupportsEnergyMeter":True, 
-                           "SupportsEnergyMeterCurPower":True, 
-                           "serviceLocationId":self.smappeeServiceLocationId, 
-                           "serviceLocationName":self.smappeeServiceLocationName, 
-                           "optionsEnergyMeterCurPower":"last", 
-                           "hideSolarUsedMeterCurGeneration":False,
-                           "hideZeroSolarUsedMeterCurGeneration":True, 
-                           "hideSolarUsedMeterAccumGeneration":False,
-                           "hideNoChangeInSolarUsedMeterAccumGeneration":True})
+                                      address="SU00",
+                                      name="Smappee Solar PV Used V2",
+                                      description="Smappee",
+                                      pluginId="com.autologplugin.indigoplugin.smappeecontroller",
+                                      deviceTypeId="smappeeSolarUsed",
+                                      folder=self.globals['devicesFolderId'],
+                                      props={"SupportsEnergyMeter": True,
+                                             "SupportsEnergyMeterCurPower": True,
+                                             "serviceLocationId": self.smappeeServiceLocationId,
+                                             "serviceLocationName": self.smappeeServiceLocationName,
+                                             "optionsEnergyMeterCurPower": "last",
+                                             "hideSolarUsedMeterCurGeneration": False,
+                                             "hideZeroSolarUsedMeterCurGeneration": True,
+                                             "hideSolarUsedMeterAccumGeneration": False,
+                                             "hideNoChangeInSolarUsedMeterAccumGeneration": True})
 
         newdev.model = "Smappee"
-        newdev.subModel = "S-Used"      # Manually need to set the model and subModel names (for UI only)
+        newdev.subModel = "S-Used"  # Manually need to set the model and subModel names (for UI only)
         newdev.configured = True
         newdev.enabled = True
         newdev.replaceOnServer()
 
-        self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeSolarUsed', self.smappeeServiceLocationId, newdev.id, "", "")
+        self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeSolarUsed', self.smappeeServiceLocationId,
+                                                newdev.id, "", "")
 
         valuesDict["addSmappeeSolarUsedDeviceEnabled"] = 'false'
         valuesDict["removeSmappeeSolarUsedDeviceEnabled"] = 'true'
@@ -1534,10 +1217,8 @@ class Plugin(indigo.PluginBase):
 
         return valuesDict
 
-
     def _removeSmappeeSolarUsedDevice(self, valuesDict, devIdList):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: _removeSmappeeSolarUsedDevice")
 
         self.monitorDeviceProcessed = True  # Forces Plugin to restart when the Device Factory dialogue is closed or cancelled 
 
@@ -1545,21 +1226,22 @@ class Plugin(indigo.PluginBase):
             try:
                 if dev.deviceTypeId == "smappeeSolarUsed":
                     serviceLocationId = dev.pluginProps['serviceLocationId']
-                    
-                    self.setSmappeeServiceLocationIdToDevId('STOP', 'smappeeSolarUsed', serviceLocationId, dev.id, "", "")
 
-                    if dev.id in pluginGlobal['smappees']:
-                        pluginGlobal['smappees'].pop(dev.id, None)
-                        autolog(FACTORY, u"_removeSmappeeSolarUsedDevice = POPPED")   
+                    self.setSmappeeServiceLocationIdToDevId('STOP', 'smappeeSolarUsed', serviceLocationId, dev.id, "",
+                                                            "")
+
+                    if dev.id in self.globals['smappees']:
+                        self.globals['smappees'].pop(dev.id, None)
+                        self.deviceFactoryLogger.debug(u"_removeSmappeeSolarUsedDevice = POPPED")
 
                     indigo.device.delete(dev)
 
-                    pluginGlobal['config']['supportsSolarUsed'] = False
+                    self.globals['config']['supportsSolarUsed'] = False
 
-                    autolog(FACTORY, u"_removeSmappeeSolarUsedDevice = DELETED")
+                    self.deviceFactoryLogger.debug(u"_removeSmappeeSolarUsedDevice = DELETED")
             except:
-                autolog(FACTORY, u"_removeSmappeeSolarUsedDevice = EXCEPTION")   
-                pass    # delete doesn't allow (throws) on root elem
+                self.deviceFactoryLogger.debug(u"_removeSmappeeSolarUsedDevice = EXCEPTION")
+                pass  # delete doesn't allow (throws) on root elem
 
         valuesDict["addSmappeeSolarUsedDeviceEnabled"] = 'true'
         valuesDict["removeSmappeeSolarUsedDeviceEnabled"] = 'false'
@@ -1568,37 +1250,36 @@ class Plugin(indigo.PluginBase):
 
         return valuesDict
 
-
     def _addSmappeeSolarExportedDevice(self, valuesDict, devIdList):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: _addSmappeeSolarExportedDevice")
 
         self.monitorDeviceProcessed = True  # Forces Plugin to restart when the Device Factory dialogue is closed or cancelled 
 
         newdev = indigo.device.create(protocol=indigo.kProtocol.Plugin,
-                    address="SE00",
-                    name="Smappee Solar PV Exported V2",
-                    description="Smappee", 
-                    pluginId="com.autologplugin.indigoplugin.smappeecontroller",
-                    deviceTypeId="smappeeSolarExported",
-                    folder=pluginGlobal['deviceFolderId'],
-                    props={"SupportsEnergyMeter":True, 
-                           "SupportsEnergyMeterCurPower":True, 
-                           "serviceLocationId":self.smappeeServiceLocationId, 
-                           "serviceLocationName":self.smappeeServiceLocationName, 
-                           "optionsEnergyMeterCurPower":"last", 
-                           "hideSolarExportedMeterCurGeneration":False,
-                           "hideZeroSolarExportedMeterCurGeneration":True, 
-                           "hideSolarExportedMeterAccumGeneration":False,
-                           "hideNoChangeInSolarExportedMeterAccumGeneration":True})
+                                      address="SE00",
+                                      name="Smappee Solar PV Exported V2",
+                                      description="Smappee",
+                                      pluginId="com.autologplugin.indigoplugin.smappeecontroller",
+                                      deviceTypeId="smappeeSolarExported",
+                                      folder=self.globals['devicesFolderId'],
+                                      props={"SupportsEnergyMeter": True,
+                                             "SupportsEnergyMeterCurPower": True,
+                                             "serviceLocationId": self.smappeeServiceLocationId,
+                                             "serviceLocationName": self.smappeeServiceLocationName,
+                                             "optionsEnergyMeterCurPower": "last",
+                                             "hideSolarExportedMeterCurGeneration": False,
+                                             "hideZeroSolarExportedMeterCurGeneration": True,
+                                             "hideSolarExportedMeterAccumGeneration": False,
+                                             "hideNoChangeInSolarExportedMeterAccumGeneration": True})
 
         newdev.model = "Smappee"
-        newdev.subModel = "S-Exported"      # Manually need to set the model and subModel names (for UI only)
+        newdev.subModel = "S-Exported"  # Manually need to set the model and subModel names (for UI only)
         newdev.configured = True
         newdev.enabled = True
         newdev.replaceOnServer()
 
-        self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeSolarExported', self.smappeeServiceLocationId, newdev.id, "", "")
+        self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeSolarExported', self.smappeeServiceLocationId,
+                                                newdev.id, "", "")
 
         valuesDict["addSmappeeSolarExportedDeviceEnabled"] = 'false'
         valuesDict["removeSmappeeSolarExportedDeviceEnabled"] = 'true'
@@ -1609,10 +1290,8 @@ class Plugin(indigo.PluginBase):
 
         return valuesDict
 
-
     def _removeSmappeeSolarExportedDevice(self, valuesDict, devIdList):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: _removeSmappeeSolarExportedDevice")
 
         self.monitorDeviceProcessed = True  # Forces Plugin to restart when the Device Factory dialogue is closed or cancelled 
 
@@ -1620,21 +1299,22 @@ class Plugin(indigo.PluginBase):
             try:
                 if dev.deviceTypeId == "smappeeSolarExported":
                     serviceLocationId = dev.pluginProps['serviceLocationId']
-                    
-                    self.setSmappeeServiceLocationIdToDevId('STOP', 'smappeeSolarExported', serviceLocationId, dev.id, "", "")
 
-                    if dev.id in pluginGlobal['smappees']:
-                        pluginGlobal['smappees'].pop(dev.id, None)
-                        autolog(FACTORY, u"_removeSmappeeSolarExportedDevice = POPPED")   
+                    self.setSmappeeServiceLocationIdToDevId('STOP', 'smappeeSolarExported', serviceLocationId, dev.id,
+                                                            "", "")
+
+                    if dev.id in self.globals['smappees']:
+                        self.globals['smappees'].pop(dev.id, None)
+                        self.deviceFactoryLogger.debug(u"_removeSmappeeSolarExportedDevice = POPPED")
 
                     indigo.device.delete(dev)
 
-                    pluginGlobal['config']['supportsSolarExported'] = False
+                    self.globals['config']['supportsSolarExported'] = False
 
-                    autolog(FACTORY, u"_removeSmappeeSolarExportedDevice = DELETED")
+                    self.deviceFactoryLogger.debug(u"_removeSmappeeSolarExportedDevice = DELETED")
             except:
-                autolog(FACTORY, u"_removeSmappeeSolarExportedDevice = EXCEPTION")   
-                pass    # delete doesn't allow (throws) on root elem
+                self.deviceFactoryLogger.debug(u"_removeSmappeeSolarExportedDevice = EXCEPTION")
+                pass  # delete doesn't allow (throws) on root elem
 
         valuesDict["addSmappeeSolarExportedDeviceEnabled"] = 'true'
         valuesDict["removeSmappeeSolarExportedDeviceEnabled"] = 'false'
@@ -1643,16 +1323,14 @@ class Plugin(indigo.PluginBase):
 
         return valuesDict
 
-
     def _getDefinedSmappeeSensorList(self, filter="", valuesDict=None, typeId="", targetId=0):
-        global pluginGlobal
-        autolog(METHOD, u"%s; LOC=[%s]" %  (methodNameForTrace(), self.smappeeServiceLocationId))  
+        self.methodTracer.threaddebug(u"CLASS: _getDefinedSmappeeSensorList; LOC=[%s]" % self.smappeeServiceLocationId)
 
         return self.listItemsDefinedSmappeeSensorList
 
     def _prepareGetDefinedSmappeeSensorList(self, valuesDict):
-        global pluginGlobal
-        autolog(METHOD, u"%s; LOC=[%s]" %  (methodNameForTrace(), self.smappeeServiceLocationId))  
+        self.methodTracer.threaddebug(
+            u"CLASS: _prepareGetDefinedSmappeeSensorList; LOC=[%s]" % self.smappeeServiceLocationId)
 
         listToDisplay = []
 
@@ -1660,46 +1338,52 @@ class Plugin(indigo.PluginBase):
             return listToDisplay
 
         for dev in indigo.devices.iter("self"):
-            if dev.deviceTypeId == "smappeeSensor" and dev.pluginProps['serviceLocationId'] == self.smappeeServiceLocationId:
+            if dev.deviceTypeId == "smappeeSensor" and dev.pluginProps[
+                    'serviceLocationId'] == self.smappeeServiceLocationId:
                 devName = dev.name
                 listToDisplay.append((str(dev.id), devName))
 
-        if listToDisplay == []:
+        if not listToDisplay:
             listToDisplay.append((0, '- No Sensors Defined -'))
 
-        listToDisplay = sorted(listToDisplay,key=lambda x: x[1])
+        listToDisplay = sorted(listToDisplay, key=lambda x: x[1])
 
         self.listItemsDefinedSmappeeSensorList = listToDisplay
-            
+
         return valuesDict
 
-
     def _getPotentialSmappeeSensorList(self, filter="", valuesDict=None, typeId="", targetId=0):
-        global pluginGlobal
-        autolog(METHOD, u"%s; LOC=[%s]" %  (methodNameForTrace(), self.smappeeServiceLocationId))  
+        self.methodTracer.threaddebug(
+            u"CLASS: _getPotentialSmappeeSensorList; LOC=[%s]" % self.smappeeServiceLocationId)
 
         return self.listItemsPotentialSmappeeSensorList
 
-
     def _prepareGetPotentialSmappeeSensorList(self, valuesDict):
-        global pluginGlobal
-        autolog(METHOD, u"%s; LOC=[%s]" %  (methodNameForTrace(), self.smappeeServiceLocationId))  
+        self.methodTracer.threaddebug(
+            u"CLASS: _prepareGetPotentialSmappeeSensorList; LOC=[%s]" % self.smappeeServiceLocationId)
 
         listToDisplay = []
 
         if self.smappeeServiceLocationId == '' or self.smappeeServiceLocationId == 'NONE':
             return listToDisplay
 
-        for sensorId in sorted(pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds']):
-            sensorName  = pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds'][sensorId]['name']
-            sensorDevId = pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds'][sensorId]['devId']
-            queuedAdd      = pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds'][sensorId]['queued-add']
+        for sensorId in sorted(
+                self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds']):
+            sensorName = \
+                self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds'][sensorId][
+                    'name']
+            sensorDevId = \
+                self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds'][sensorId][
+                    'devId']
+            queuedAdd = \
+                self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds'][sensorId][
+                    'queued-add']
             if sensorDevId == 0:
-                if queuedAdd == True:
-                    sensorName = str("QUEUED: %s" % (sensorName))
+                if queuedAdd:
+                    sensorName = str("QUEUED: %s" % sensorName)
                 listToDisplay.append((sensorId, sensorName))
-                        
-        if listToDisplay == []:
+
+        if not listToDisplay:
             listToDisplay.append((0, '- No Available Sensors Detected -'))
             valuesDict["addSmappeeSensorDeviceEnabled"] = 'false'
         else:
@@ -1708,38 +1392,40 @@ class Plugin(indigo.PluginBase):
         listToDisplay = sorted(listToDisplay)
 
         self.listItemsPotentialSmappeeSensorList = listToDisplay
-            
+
         return valuesDict
 
-
     def _addSmappeeSensorDevice(self, valuesDict, devIdList):
-        global pluginGlobal
-        autolog(METHOD, u"%s; ValuesDict=[%s]" %  (methodNameForTrace(), valuesDict['potentialSmappeeSensorList']))  
+        self.methodTracer.threaddebug(
+            u"CLASS: _addSmappeeSensorDevice; ValuesDict=[%s]" % valuesDict['potentialSmappeeSensorList'])
 
         for potentialSensorAddress in valuesDict['potentialSmappeeSensorList']:
             potentialSensorAddress = str(potentialSensorAddress)
-            potentialSensorName = pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds'][potentialSensorAddress]['name'] 
-            if pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds'][potentialSensorAddress]['queued-add'] == False:
-                self.setSmappeeServiceLocationIdToDevId('QUEUE-ADD', 'smappeeSensor', self.smappeeServiceLocationId, 0, potentialSensorAddress, potentialSensorName)
+            potentialSensorName = \
+                self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds'][
+                    potentialSensorAddress]['name']
+            if not self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['sensorIds'][
+                    potentialSensorAddress]['queued-add']:
+                self.setSmappeeServiceLocationIdToDevId('QUEUE-ADD', 'smappeeSensor', self.smappeeServiceLocationId, 0,
+                                                        potentialSensorAddress, potentialSensorName)
             else:
-                self.setSmappeeServiceLocationIdToDevId('DEQUEUE', 'smappeeSensor', self.smappeeServiceLocationId, 0, potentialSensorAddress, potentialSensorName)
+                self.setSmappeeServiceLocationIdToDevId('DEQUEUE', 'smappeeSensor', self.smappeeServiceLocationId, 0,
+                                                        potentialSensorAddress, potentialSensorName)
 
         valuesDict = self._prepareGetDefinedSmappeeSensorList(valuesDict)
         valuesDict = self._prepareGetPotentialSmappeeSensorList(valuesDict)
 
         return valuesDict
 
-
     def _getDefinedSmappeeApplianceList(self, filter="", valuesDict=None, typeId="", targetId=0):
-        global pluginGlobal
-        autolog(METHOD, u"%s; LOC=[%s]" %  (methodNameForTrace(), self.smappeeServiceLocationId))  
+        self.methodTracer.threaddebug(
+            u"CLASS: _getDefinedSmappeeApplianceList; LOC=[%s]" % self.smappeeServiceLocationId)
 
         return self.listItemsDefinedSmappeeApplianceList
 
-
     def _prepareGetDefinedSmappeeApplianceList(self, valuesDict):
-        global pluginGlobal
-        autolog(METHOD, u"%s; LOC=[%s]" %  (methodNameForTrace(), self.smappeeServiceLocationId))  
+        self.methodTracer.threaddebug(
+            u"CLASS: _prepareGetDefinedSmappeeApplianceList; LOC=[%s]" % self.smappeeServiceLocationId)
 
         listToDisplay = []
 
@@ -1747,46 +1433,55 @@ class Plugin(indigo.PluginBase):
             return listToDisplay
 
         for dev in indigo.devices.iter("self"):
-            if dev.deviceTypeId == "smappeeAppliance" and dev.pluginProps['serviceLocationId'] == self.smappeeServiceLocationId:
+            if dev.deviceTypeId == "smappeeAppliance" and dev.pluginProps[
+                    'serviceLocationId'] == self.smappeeServiceLocationId:
                 devName = dev.name
                 listToDisplay.append((str(dev.id), devName))
 
-        if listToDisplay == []:
+        if not listToDisplay:
             listToDisplay.append((0, '- No Appliances Defined -'))
 
-        listToDisplay = sorted(listToDisplay,key=lambda x: x[1])
+        listToDisplay = sorted(listToDisplay, key=lambda x: x[1])
 
         self.listItemsDefinedSmappeeApplianceList = listToDisplay
-            
+
         return valuesDict
 
-
     def _getPotentialSmappeeApplianceList(self, filter="", valuesDict=None, typeId="", targetId=0):
-        global pluginGlobal
-        autolog(METHOD, u"%s; LOC=[%s]" %  (methodNameForTrace(), self.smappeeServiceLocationId))  
+        self.methodTracer.threaddebug(
+            u"CLASS: _getPotentialSmappeeApplianceList; LOC=[%s]" % self.smappeeServiceLocationId)
 
         return self.listItemsPotentialSmappeeApplianceList
 
-
     def _prepareGetPotentialSmappeeApplianceList(self, valuesDict):
-        global pluginGlobal
-        autolog(METHOD, u"%s; LOC=[%s]" %  (methodNameForTrace(), self.smappeeServiceLocationId))  
+        self.methodTracer.threaddebug(
+            u"CLASS: _prepareGetPotentialSmappeeApplianceList; LOC=[%s]" % self.smappeeServiceLocationId)
 
         listToDisplay = []
 
         if self.smappeeServiceLocationId == '' or self.smappeeServiceLocationId == 'NONE':
             return listToDisplay
 
-        for applianceId in sorted(pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds']):
-            applianceName  = pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds'][applianceId]['name']
-            applianceDevId = pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds'][applianceId]['devId']
-            queuedAdd      = pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds'][applianceId]['queued-add']
+        for applianceId in sorted(
+                self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds']):
+            applianceName = \
+                self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds'][
+                    applianceId][
+                    'name']
+            applianceDevId = \
+                self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds'][
+                    applianceId][
+                    'devId']
+            queuedAdd = \
+                self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds'][
+                    applianceId][
+                    'queued-add']
             if applianceDevId == 0:
-                if queuedAdd == True:
-                    applianceName = str("QUEUED: %s" % (applianceName))
+                if queuedAdd:
+                    applianceName = str("QUEUED: %s" % applianceName)
                 listToDisplay.append((applianceId, applianceName))
-                        
-        if listToDisplay == []:
+
+        if not listToDisplay:
             listToDisplay.append((0, '- No Available Appliances Detected -'))
             valuesDict["addSmappeeApplianceDeviceEnabled"] = 'false'
         else:
@@ -1795,37 +1490,40 @@ class Plugin(indigo.PluginBase):
         listToDisplay = sorted(listToDisplay)
 
         self.listItemsPotentialSmappeeApplianceList = listToDisplay
-            
+
         return valuesDict
 
-
     def _addSmappeeApplianceDevice(self, valuesDict, devIdList):
-        global pluginGlobal
-        autolog(METHOD, u"%s; ValuesDict=[%s]" %  (methodNameForTrace(), valuesDict['potentialSmappeeApplianceList']))  
+        self.methodTracer.threaddebug(
+            u"CLASS: _addSmappeeApplianceDevice; ValuesDict=[%s]" % valuesDict['potentialSmappeeApplianceList'])
 
         for potentialApplianceAddress in valuesDict['potentialSmappeeApplianceList']:
             potentialApplianceAddress = str(potentialApplianceAddress)
-            potentialApplianceName = pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds'][potentialApplianceAddress]['name'] 
-            if pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds'][potentialApplianceAddress]['queued-add'] == False:
-                self.setSmappeeServiceLocationIdToDevId('QUEUE-ADD', 'smappeeAppliance', self.smappeeServiceLocationId, 0, potentialApplianceAddress, potentialApplianceName)
+            potentialApplianceName = \
+                self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds'][
+                    potentialApplianceAddress]['name']
+            if not self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['applianceIds'][
+                    potentialApplianceAddress]['queued-add']:
+                self.setSmappeeServiceLocationIdToDevId('QUEUE-ADD', 'smappeeAppliance', self.smappeeServiceLocationId,
+                                                        0, potentialApplianceAddress, potentialApplianceName)
             else:
-                self.setSmappeeServiceLocationIdToDevId('DEQUEUE', 'smappeeAppliance', self.smappeeServiceLocationId, 0, potentialApplianceAddress, potentialApplianceName)
+                self.setSmappeeServiceLocationIdToDevId('DEQUEUE', 'smappeeAppliance', self.smappeeServiceLocationId, 0,
+                                                        potentialApplianceAddress, potentialApplianceName)
 
         valuesDict = self._prepareGetDefinedSmappeeApplianceList(valuesDict)
         valuesDict = self._prepareGetPotentialSmappeeApplianceList(valuesDict)
 
         return valuesDict
 
-
     def _getDefinedSmappeeActuatorList(self, filter="", valuesDict=None, typeId="", targetId=0):
-        global pluginGlobal
-        autolog(METHOD, u"%s; LOC=[%s]" %  (methodNameForTrace(), self.smappeeServiceLocationId))  
+        self.methodTracer.threaddebug(
+            u"CLASS: _getDefinedSmappeeActuatorList; LOC=[%s]" % self.smappeeServiceLocationId)
 
         return self.listItemsDefinedSmappeeActuatorList
 
     def _prepareGetDefinedSmappeeActuatorList(self, valuesDict):
-        global pluginGlobal
-        autolog(METHOD, u"%s; LOC=[%s]" %  (methodNameForTrace(), self.smappeeServiceLocationId))  
+        self.methodTracer.threaddebug(
+            u"CLASS: _prepareGetDefinedSmappeeActuatorList; LOC=[%s]" % self.smappeeServiceLocationId)
 
         listToDisplay = []
 
@@ -1833,46 +1531,55 @@ class Plugin(indigo.PluginBase):
             return listToDisplay
 
         for dev in indigo.devices.iter("self"):
-            if dev.deviceTypeId == "smappeeActuator" and dev.pluginProps['serviceLocationId'] == self.smappeeServiceLocationId:
+            if dev.deviceTypeId == "smappeeActuator" and dev.pluginProps[
+                    'serviceLocationId'] == self.smappeeServiceLocationId:
                 devName = dev.name
                 listToDisplay.append((str(dev.id), devName))
-  
-        if listToDisplay == []:
+
+        if not listToDisplay:
             listToDisplay.append((0, '- No Actuators Defined -'))
-         
-        listToDisplay = sorted(listToDisplay,key=lambda x: x[1])
+
+        listToDisplay = sorted(listToDisplay, key=lambda x: x[1])
 
         self.listItemsDefinedSmappeeActuatorList = listToDisplay
-            
+
         return valuesDict
 
-
     def _getPotentialSmappeeActuatorList(self, filter="", valuesDict=None, typeId="", targetId=0):
-        global pluginGlobal
-        autolog(METHOD, u"%s; LOC=[%s]" %  (methodNameForTrace(), self.smappeeServiceLocationId))  
+        self.methodTracer.threaddebug(
+            u"CLASS: _getPotentialSmappeeActuatorList; LOC=[%s]" % self.smappeeServiceLocationId)
 
         return self.listItemsPotentialSmappeeActuatorList
 
-
     def _prepareGetPotentialSmappeeActuatorList(self, valuesDict):
-        global pluginGlobal
-        autolog(METHOD, u"%s; LOC=[%s]" %  (methodNameForTrace(), self.smappeeServiceLocationId))  
+        self.methodTracer.threaddebug(
+            u"CLASS: _prepareGetPotentialSmappeeActuatorList; LOC=[%s]" % self.smappeeServiceLocationId)
 
         listToDisplay = []
 
         if self.smappeeServiceLocationId == '' or self.smappeeServiceLocationId == 'NONE':
             return listToDisplay
 
-        for actuatorId in sorted(pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds']):
-            actuatorName   = pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds'][actuatorId]['name']
-            actuatorDevId  = pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds'][actuatorId]['devId']
-            queuedAdd      = pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds'][actuatorId]['queued-add']
+        for actuatorId in sorted(
+                self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds']):
+            actuatorName = \
+                self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds'][
+                    actuatorId][
+                    'name']
+            actuatorDevId = \
+                self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds'][
+                    actuatorId][
+                    'devId']
+            queuedAdd = \
+                self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds'][
+                    actuatorId][
+                    'queued-add']
             if actuatorDevId == 0:
-                if queuedAdd == True:
-                    actuatorName = str("QUEUED: %s" % (actuatorName))
+                if queuedAdd:
+                    actuatorName = str("QUEUED: %s" % actuatorName)
                 listToDisplay.append((actuatorId, actuatorName))
 
-        if listToDisplay == []:
+        if not listToDisplay:
             listToDisplay.append((0, '- No Available Actuators Detected -'))
             valuesDict["addSmappeeActuatorDeviceEnabled"] = 'false'
         else:
@@ -1881,481 +1588,273 @@ class Plugin(indigo.PluginBase):
         listToDisplay = sorted(listToDisplay)
 
         self.listItemsPotentialSmappeeActuatorList = listToDisplay
-            
+
         return valuesDict
 
-
     def _addSmappeeActuatorDevice(self, valuesDict, devIdList):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: _addSmappeeActuatorDevice")
 
         for potentialActuatorAddress in valuesDict['potentialSmappeeActuatorList']:
             potentialActuatorAddress = str(potentialActuatorAddress)
-            potentialActuatorName = pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds'][potentialActuatorAddress]['name']
-            if pluginGlobal['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds'][potentialActuatorAddress]['queued-add'] == False:
-                self.setSmappeeServiceLocationIdToDevId('QUEUE-ADD', 'smappeeActuator', self.smappeeServiceLocationId, 0, potentialActuatorAddress, potentialActuatorName)
+            potentialActuatorName = \
+                self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds'][
+                    potentialActuatorAddress]['name']
+            if not self.globals['smappeeServiceLocationIdToDevId'][self.smappeeServiceLocationId]['actuatorIds'][
+                    potentialActuatorAddress]['queued-add']:
+                self.setSmappeeServiceLocationIdToDevId('QUEUE-ADD', 'smappeeActuator', self.smappeeServiceLocationId,
+                                                        0, potentialActuatorAddress, potentialActuatorName)
             else:
-                self.setSmappeeServiceLocationIdToDevId('DEQUEUE', 'smappeeActuator', self.smappeeServiceLocationId, 0, potentialActuatorAddress, potentialActuatorName)
+                self.setSmappeeServiceLocationIdToDevId('DEQUEUE', 'smappeeActuator', self.smappeeServiceLocationId, 0,
+                                                        potentialActuatorAddress, potentialActuatorName)
 
         valuesDict = self._prepareGetDefinedSmappeeActuatorList(valuesDict)
         valuesDict = self._prepareGetPotentialSmappeeActuatorList(valuesDict)
 
         return valuesDict
 
-
-    def validatePrefsConfigUi(self, valuesDict):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
-
-
-
-        ### SMAPPEE CONFIG ###
-
-        if "smappeeAddress" in valuesDict:
-            pluginGlobal['config']['address'] = valuesDict["smappeeAddress"]
-        else:
-            pluginGlobal['config']['address'] = "https://app1pub.smappee.net/dev/v1/servicelocation"
-
-        if "smappeeClientId" in valuesDict:
-            pluginGlobal['config']['clientId'] = valuesDict["smappeeClientId"]
-        else:
-            pluginGlobal['config']['clientId'] = ""
-
-        if "smappeeSecret" in valuesDict:
-            pluginGlobal['config']['secret'] = valuesDict["smappeeSecret"]
-        else:
-            pluginGlobal['config']['secret'] = ""
-
-        if "smappeeUserName" in valuesDict:
-            pluginGlobal['config']['userName'] = valuesDict["smappeeUserName"]
-        else:
-            pluginGlobal['config']['userName'] = ""
-
-        if "smappeePassword" in valuesDict:
-            pluginGlobal['config']['password'] = valuesDict["smappeePassword"]
-        else:
-            pluginGlobal['config']['password'] = ""
-
-        ### POLLING ###
-
-        if "statusPolling" in valuesDict:
-            pluginGlobal['polling']['status'] = bool(valuesDict["statusPolling"])
-        else:
-            pluginGlobal['polling']['status'] = False
-
-        # No need to validate 'pollingSeconds' as value can only be selected from a pull down list
-        if "pollingSeconds" in valuesDict:
-            pluginGlobal['polling']['seconds'] = float(valuesDict["pollingSeconds"])
-        else:
-            pluginGlobal['polling']['seconds'] = float(300.0)  # Default to 5 minutes
-
-        ### DEBUG ###
-
-        pluginGlobal['debug']['debugFolder'] = valuesDict.get("debugFolder", "/Library/Application Support")
-
-        if not os.path.exists(pluginGlobal['debug']['debugFolder']):
-            errorDict = indigo.Dict()
-            errorDict["debugFolder"] = "Folder doesn't exist"
-            errorDict["showAlertText"] = "Folder doesn't exist, please specify a valid folder."
-            return (False, valuesDict, errorDict)
-
-        try:
-            path = str('%s/%s' %(pluginGlobal['debug']['debugFolder'], 'autolog/smappee/debug'))
-            os.makedirs(path)
-        except OSError, e:
-            if e.errno != errno.EEXIST:
-                errorDict = indigo.Dict()
-                errorDict["debugFolder"] = str("Error creating '%s' folder. Error = %s" % (path, e))
-                errorDict["showAlertText"] = "Error creating debug folder - please correct error."
-                return (False, valuesDict, errorDict)
-
-
-        if "debugDetailed" in valuesDict:
-            pluginGlobal['debug']['detailed'] = bool(valuesDict["debugDetailed"])
-        else:
-            pluginGlobal['debug']['detailed'] = False
-
-        if "debugDeviceFactory" in valuesDict:
-            pluginGlobal['debug']['deviceFactory'] = bool(valuesDict["debugDeviceFactory"])
-        else:
-            pluginGlobal['debug']['deviceFactory'] = False
-
-        if "debugInterface" in valuesDict:
-            pluginGlobal['debug']['interface'] = bool(valuesDict["debugInterface"])
-        else:
-            pluginGlobal['debug']['interface'] = False
-
-        if "debugMethodTrace" in valuesDict:
-            pluginGlobal['debug']['methodTrace'] = bool(valuesDict["debugMethodTrace"])
-        else:
-            pluginGlobal['debug']['methodTrace'] = False
-
-        if "debugPolling" in valuesDict:
-            pluginGlobal['debug']['polling'] = bool(valuesDict["debugPolling"])
-        else:
-            pluginGlobal['debug']['polling'] = False
-
-        pluginGlobal['debug']['active'] = pluginGlobal['debug']['detailed'] or pluginGlobal['debug']['deviceFactory'] or pluginGlobal['debug']['interface'] or pluginGlobal['debug']['methodTrace'] or pluginGlobal['debug']['polling']
-
-
-        if pluginGlobal['debug']['active'] == False:
-            autolog(INFO, u"No debug logging requested")
-        else:
-            debugTypes = []
-            if pluginGlobal['debug']['detailed'] == True:
-                debugTypes.append('Detailed')
-            if pluginGlobal['debug']['deviceFactory'] == True:
-                debugTypes.append('Device Factory')
-            if pluginGlobal['debug']['interface'] == True:
-                debugTypes.append('Interface')
-            if pluginGlobal['debug']['methodTrace'] == True:
-                debugTypes.append('Method Trace')
-            if pluginGlobal['debug']['polling'] == True:
-                debugTypes.append('Polling')
-
-            loop = 0
-            message = ''
-            for debugType in debugTypes:
-                if loop == 0:
-                    message = message + debugType
-                else:
-                    message = message + ', ' + debugType
-                loop += 1
-
-            autolog(INFO, u"Debug logging active for debug types: %s" % (message))  
-
-        return True
-
-
-    def closedPrefsConfigUi(self, valuesDict, userCancelled):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
-
-
-        autolog(POLLING, u"'closePrefsConfigUi' called with userCancelled = %s" % (str(userCancelled)))  
-
-        if userCancelled == True:
-            return
-
-        # Following logic checks whether polling is required.
-        # If it isn't required, then it checks if a polling thread exists and if it does it ends it
-        # If it is required, then it checks if a pollling thread exists and 
-        #   if a polling thread doesn't exist it will create one as long as the start logic has completed and created a Smappee Command Queue.
-        #   In the case where a Smappee command queue hasn't been created then it means 'Start' is yet to run and so 
-        #   'Start' will create the polling thread. So this bit of logic is mainly used where polling has been turned off
-        #   after starting and then turned on again
-        # If polling is required and a polling thread exists, then the logic 'sets' an event to cause the polling thread to awaken and
-        #   update the polling interval
-
-        if pluginGlobal['polling']['status'] == False:
-            if hasattr(self, 'pollingThread'):
-                pluginGlobal['polling']['threadEnd'] = True
-                self.pollingEvent.set()  # Stop the Polling Thread
-                self.pollingThread.join(5.0)  # Wait for up tp 5 seconds for it to end
-                del self.pollingThread  # Delete thread so that it can be recreated if polling is turned on again
-        else:
-            if not hasattr(self, 'pollingThread'):
-                if hasattr(self, 'sendToSmappeeQueue'):
-                    self.pollingEvent = threading.Event()
-                    self.pollingThread = ThreadPolling(self.pollingEvent, self.sendToSmappeeQueue)
-                    self.pollingThread.start()
-            else:
-                pluginGlobal['polling']['threadEnd'] = False
-                self.pollingEvent.set()  # cause the Polling Thread to update immediately with potentially a new polling seconds value
-        return
-
-
-    def runConcurrentThread(self):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
-
-        # This thread is used to handle responses from Smappee
-
-
-        try:
-            while True:
-                try:
-                    self.process = self.processQueue.get(True,1)  # Retrieve response from Smappee
-                    try:   
-                        self.handleSmappeeResponse(self.process[0], self.process[1], self.process[2])  # Handle response from Smappee
-                    except StandardError, e:
-                        autolog(ERROR, u"StandardError detected for function '%s'. Line '%s' has error='%s'" % (self.process[0], sys.exc_traceback.tb_lineno, e))   
-                except autologQueueEmpty:
-                    if self.stopThread:
-                        raise self.StopThread         # Plugin shutdown request.
-        except self.StopThread:
-            # Optionally catch the StopThread exception and do any needed cleanup.
-            autolog(DETAIL, u"runConcurrentThread being stopped")   
-
-
     def deviceUpdated(self, origDev, newDev):
-        global pluginGlobal
-        # autolog(METHOD, u"%s" %  (methodNameForTrace()))  
-
         indigo.PluginBase.deviceUpdated(self, origDev, newDev)
 
         return
 
-
     def actionControlDimmerRelay(self, action, dev):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
-        ###### TURN ON ######
+        self.methodTracer.threaddebug(u"CLASS: actionControlDimmerRelay")
+
+        # ##### TURN ON ######
         if action.deviceAction == indigo.kDimmerRelayAction.TurnOn:
             # Command hardware module (dev) to turn ON here:
             self.processTurnOn(action, dev)
             dev.updateStateOnServer("onOffState", True)
-            sendSuccess = True      # Assume succeeded
+            sendSuccess = True  # Assume succeeded
 
             if sendSuccess:
                 # If success then log that the command was successfully sent.
-                autolog(INFO, u"sent \"%s\" %s" % (dev.name, "on"))
+                self.generalLogger.info(u"sent \"%s\" %s" % (dev.name, "on"))
 
                 # And then tell the Indigo Server to update the state.
                 # dev.updateStateOnServer(key="onOffState", value=True, uiValue="on")  # £££££££££££££££££££££££££££££££££££££££££££££££££££££££££££££££££££££££££
 
             else:
                 # Else log failure but do NOT update state on Indigo Server.
-                autolog(ERROR, u"send \"%s\" %s failed" % (dev.name, "on"))
+                self.generalLogger.error(u"send \"%s\" %s failed" % (dev.name, "on"))
 
-        ###### TURN OFF ######
+        # ##### TURN OFF #####
         elif action.deviceAction == indigo.kDimmerRelayAction.TurnOff:
             # Command hardware module (dev) to turn OFF here:
             self.processTurnOff(action, dev)
             dev.updateStateOnServer("onOffState", False)
-            sendSuccess = True      # Assume succeeded
+            sendSuccess = True  # Assume succeeded
 
             if sendSuccess:
                 # If success then log that the command was successfully sent.
-                autolog(INFO, u"sent \"%s\" %s" % (dev.name, "off"))
+                self.generalLogger.info(u"sent \"%s\" %s" % (dev.name, "off"))
 
                 # And then tell the Indigo Server to update the state:
                 # dev.updateStateOnServer(key="onOffState", value=False, uiValue="off")  # £££££££££££££££££££££££££££££££££££££££££££££££££££££££££££££££££££££££££
             else:
                 # Else log failure but do NOT update state on Indigo Server.
-                autolog(ERROR, u"send \"%s\" %s failed" % (dev.name, "off"))
+                self.generalLogger.error(u"send \"%s\" %s failed" % (dev.name, "off"))
 
-        ###### TOGGLE ######
+        # ##### TOGGLE #####
         elif action.deviceAction == indigo.kDimmerRelayAction.Toggle:
             # Command hardware module (dev) to toggle here:
             self.processTurnOnOffToggle(action, dev)
             newOnState = not dev.onState
-            sendSuccess = True      # Assume succeeded
+            sendSuccess = True  # Assume succeeded
 
             if sendSuccess:
                 # If success then log that the command was successfully sent.
-                autolog(INFO, u"sent \"%s\" %s" % (dev.name, "toggle"))
+                self.generalLogger.info(u"sent \"%s\" %s" % (dev.name, "toggle"))
 
                 # And then tell the Indigo Server to update the state:
                 dev.updateStateOnServer("onOffState", newOnState)
             else:
                 # Else log failure but do NOT update state on Indigo Server.
-                autolog(ERROR, u"send \"%s\" %s failed" % (dev.name, "toggle"))
+                self.generalLogger.error(u"send \"%s\" %s failed" % (dev.name, "toggle"))
 
     #########################
     # General Action callback
     #########################
     def actionControlGeneral(self, action, dev):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
-        ###### BEEP ######
-        if action.deviceAction == indigo.kDeviceGeneralAction.Beep:
-            # Beep the hardware module (dev) here:
-            # ** IMPLEMENT ME **
-            autolog(INFO, u"sent \"%s\" %s" % (dev.name, "beep request"))
+        self.methodTracer.threaddebug(u"CLASS: actionControlGeneral")
 
-        ###### ENERGY UPDATE ######
-        elif action.deviceAction == indigo.kDeviceGeneralAction.EnergyUpdate:
+        # ##### ENERGY UPDATE #####
+        if action.deviceAction == indigo.kDeviceGeneralAction.EnergyUpdate:
             # Request hardware module (dev) for its most recent meter data here:
-            autolog(INFO, u"sent \"%s\" %s" % (dev.name, "energy update request"))
+            self.generalLogger.info(u"sent \"%s\" %s" % (dev.name, "energy update request"))
             self.processUpdate(action, dev)
 
-        ###### ENERGY RESET ######
+        # ##### ENERGY RESET #####
         elif action.deviceAction == indigo.kDeviceGeneralAction.EnergyReset:
             # Request that the hardware module (dev) reset its accumulative energy usage data here:
-            autolog(INFO, u"sent \"%s\" %s" % (dev.name, "energy reset request"))
+            self.generalLogger.info(u"sent \"%s\" %s" % (dev.name, "energy reset request"))
             self.processReset(action, dev)
 
-        ###### STATUS REQUEST ######
+        # ##### STATUS REQUEST #####
         elif action.deviceAction == indigo.kDeviceGeneralAction.RequestStatus:
             # Query hardware module (dev) for its current status here:
- 
-            autolog(INFO, u"sent \"%s\" %s" % (dev.name, "status request"))
 
+            self.generalLogger.info(u"sent \"%s\" %s" % (dev.name, "status request"))
 
     def processUpdate(self, pluginAction, dev):  # Dev is a Smappee
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: processUpdate")
 
- 
-        autolog(DETAIL, u"'processUpdate' [%s]" % (str(dev.pluginProps['serviceLocationId']))) 
+        self.generalLogger.debug(u"'processUpdate' [%s]" % (str(dev.pluginProps['serviceLocationId'])))
 
-        self.sendToSmappeeQueue.put(["GET_CONSUMPTION",str(dev.pluginProps['serviceLocationId'])])
+        self.globals['queues']['sendToSmappee'].put(["GET_CONSUMPTION", str(dev.pluginProps['serviceLocationId'])])
 
         return
 
     def processReset(self, pluginAction, dev):  # Dev is a Smappee
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: processReset")
 
- 
-        autolog(DETAIL, u"'processReset' [%s]" % (str(dev.pluginProps['serviceLocationId']))) 
+        self.generalLogger.debug(u"'processReset' [%s]" % (str(dev.pluginProps['serviceLocationId'])))
 
         if "accumEnergyTotal" in dev.states:
             if float(dev.states.get("accumEnergyTotal", 0)) != 0.0:
-                autolog(DETAIL, u"'processReset' accumEnergyTotal=[%f]" % (float(dev.states.get("accumEnergyTotal", 0)))) 
-                self.sendToSmappeeQueue.put(["RESET_CONSUMPTION",str(dev.pluginProps['serviceLocationId'])])
+                self.generalLogger.debug(
+                    u"'processReset' accumEnergyTotal=[%f]" % (float(dev.states.get("accumEnergyTotal", 0))))
+                self.globals['queues']['sendToSmappee'].put(["RESET_CONSUMPTION", str(dev.pluginProps['serviceLocationId'])])
 
         return
 
     def processTurnOnOffToggle(self, pluginAction, dev):  # Dev is a mappee Appliance
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: processTurnOnOffToggle")
 
+        self.generalLogger.debug(u"'processTurnOnOffToggle' [%s]" % (self.globals['smappeePlugs'][dev.id]['address']))
 
-        autolog(DETAIL, u"'processTurnOnOffToggle' [%s]" % (pluginGlobal['smappeePlugs'][dev.id]['address'])) 
-
-        if dev.onState == True:
-            self.processTurnOff(pluginAction, dev) 
+        if dev.onState:
+            self.processTurnOff(pluginAction, dev)
         else:
             self.processTurnOn(pluginAction, dev)
         return
 
-
     def processTurnOn(self, pluginAction, dev):  # Dev is a Smappee Actuator
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: processTurnOn")
 
-
-
-        autolog(DETAIL, u"'processTurnOn' [%s]" % (pluginGlobal['smappeePlugs'][dev.id]['address']))
+        self.generalLogger.debug(u"'processTurnOn' [%s]" % (self.globals['smappeePlugs'][dev.id]['address']))
 
         #  Convert Address from "P012" to "12" i.e. remove leading P and leading 0's
-        actuatorAddress = pluginGlobal['smappeePlugs'][dev.id]['address'][1:].lstrip("0")
+        actuatorAddress = self.globals['smappeePlugs'][dev.id]['address'][1:].lstrip("0")
 
-        self.sendToSmappeeQueue.put(['ON', str(dev.pluginProps['serviceLocationId']), actuatorAddress])
+        self.globals['queues']['sendToSmappee'].put(['ON', str(dev.pluginProps['serviceLocationId']), actuatorAddress])
 
         return
-
 
     def processTurnOff(self, pluginAction, dev):  # Dev is a Smappee Appliance
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
- 
- 
-        autolog(DETAIL, u"'processTurnOff' [%s]" % (pluginGlobal['smappeePlugs'][dev.id]['address'])) 
+        self.methodTracer.threaddebug(u"CLASS: processTurnOff")
+
+        self.generalLogger.debug(u"'processTurnOff' [%s]" % (self.globals['smappeePlugs'][dev.id]['address']))
 
         #  Convert Address from "P012" to "12" i.e. remove leading P and leading 0's
-        actuatorAddress = pluginGlobal['smappeePlugs'][dev.id]['address'][1:].lstrip("0")
+        actuatorAddress = self.globals['smappeePlugs'][dev.id]['address'][1:].lstrip("0")
 
-        self.sendToSmappeeQueue.put(['OFF', str(dev.pluginProps['serviceLocationId']), actuatorAddress])
+        self.globals['queues']['sendToSmappee'].put(['OFF', str(dev.pluginProps['serviceLocationId']), actuatorAddress])
 
         return
 
-
     def handleCreateNewSensor(self, commandSentToSmappee, responseLocationId, responseFromSmappee):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: handleCreateNewSensor")
 
         try:
-            serviceLocationId = responseLocationId 
+            serviceLocationId = responseLocationId
             serviceLocationName, address, name = responseFromSmappee
 
             name = name + ' V2'
 
             smappeeSensorDev = indigo.device.create(protocol=indigo.kProtocol.Plugin,
-                address=address,
-                name=name, 
-                description="Smappee Sensor", 
-                pluginId="com.autologplugin.indigoplugin.smappeecontroller",
-                deviceTypeId="smappeeSensor",
-                folder=pluginGlobal['deviceFolderId'],
-                props={"SupportsBatteryLevel":True,
-                       "SupportsEnergyMeter":True,
-                       "SupportsEnergyMeterCurPower":True,
-                       "serviceLocationId":serviceLocationId,
-                       "serviceLocationName":serviceLocationName,
-                       "optionsEnergyMeterCurPower":"last", 
-                       "hideEnergyMeterCurPower":False, 
-                       "hideEnergyMeterAccumPower":False,
-                       "dailyStandingCharge":"0.00",
-                       "units":"kWh",
-                       "unitCost":"0.00"})
+                                                    address=address,
+                                                    name=name,
+                                                    description="Smappee Sensor",
+                                                    pluginId="com.autologplugin.indigoplugin.smappeecontroller",
+                                                    deviceTypeId="smappeeSensor",
+                                                    folder=self.globals['devicesFolderId'],
+                                                    props={"SupportsBatteryLevel": True,
+                                                           "SupportsEnergyMeter": True,
+                                                           "SupportsEnergyMeterCurPower": True,
+                                                           "serviceLocationId": serviceLocationId,
+                                                           "serviceLocationName": serviceLocationName,
+                                                           "optionsEnergyMeterCurPower": "last",
+                                                           "hideEnergyMeterCurPower": False,
+                                                           "hideEnergyMeterAccumPower": False,
+                                                           "dailyStandingCharge": "0.00",
+                                                           "units": "kWh",
+                                                           "unitCost": "0.00"})
 
-            self.setSmappeeServiceLocationIdToDevId('DEQUEUE', 'smappeeSensor', serviceLocationId, smappeeSensorDev.id, address, name)
+            self.setSmappeeServiceLocationIdToDevId('DEQUEUE', 'smappeeSensor', serviceLocationId, smappeeSensorDev.id,
+                                                    address, name)
 
         except StandardError, e:
-            autolog(ERROR, u"StandardError detected in 'createNewSensor'. Line '%s' has error='%s'" % (sys.exc_traceback.tb_lineno, e))   
-            autolog(ERROR, u"Response from Smappee was:'%s'" % (responseFromSmappee))   
-
+            self.generalLogger.error(u"StandardError detected in 'createNewSensor'. Line '%s' has error='%s'" % (
+                sys.exc_traceback.tb_lineno, e))
+            self.generalLogger.error(u"Response from Smappee was:'%s'" % responseFromSmappee)
 
     def handleCreateNewAppliance(self, commandSentToSmappee, responseLocationId, responseFromSmappee):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: handleCreateNewAppliance")
 
         try:
-            serviceLocationId = responseLocationId 
+            serviceLocationId = responseLocationId
             serviceLocationName, address, name = responseFromSmappee
 
             name = name + ' V2'
 
             smappeeApplianceDev = indigo.device.create(protocol=indigo.kProtocol.Plugin,
-                address=address,
-                name=name, 
-                description="Smappee Appliance", 
-                pluginId="com.autologplugin.indigoplugin.smappeecontroller",
-                deviceTypeId="smappeeAppliance",
-                folder=pluginGlobal['deviceFolderId'],
-                props={"SupportsEnergyMeter":True,
-                       "SupportsEnergyMeterCurPower":True,
-                       "serviceLocationId":serviceLocationId,
-                       "serviceLocationName":serviceLocationName,
-                       "smappeeApplianceEventLastRecordedTimestamp":0.0,
-                       "showApplianceEventStatus":True,
-                       "hideApplianceSmappeeEvents":False,
-                       "smappeeApplianceEventStatus":"NONE"})
+                                                       address=address,
+                                                       name=name,
+                                                       description="Smappee Appliance",
+                                                       pluginId="com.autologplugin.indigoplugin.smappeecontroller",
+                                                       deviceTypeId="smappeeAppliance",
+                                                       folder=self.globals['devicesFolderId'],
+                                                       props={"SupportsEnergyMeter": True,
+                                                              "SupportsEnergyMeterCurPower": True,
+                                                              "serviceLocationId": serviceLocationId,
+                                                              "serviceLocationName": serviceLocationName,
+                                                              "smappeeApplianceEventLastRecordedTimestamp": 0.0,
+                                                              "showApplianceEventStatus": True,
+                                                              "hideApplianceSmappeeEvents": False,
+                                                              "smappeeApplianceEventStatus": "NONE"})
 
-            self.setSmappeeServiceLocationIdToDevId('DEQUEUE', 'smappeeAppliance', serviceLocationId, smappeeApplianceDev.id, address, name)
+            self.setSmappeeServiceLocationIdToDevId('DEQUEUE', 'smappeeAppliance', serviceLocationId,
+                                                    smappeeApplianceDev.id, address, name)
 
         except StandardError, e:
-            autolog(ERROR, u"StandardError detected in 'createNewAppliance'. Line '%s' has error='%s'" % (sys.exc_traceback.tb_lineno, e))   
-            autolog(ERROR, u"Response from Smappee was:'%s'" % (responseFromSmappee))
-
+            self.generalLogger.error(u"StandardError detected in 'createNewAppliance'. Line '%s' has error='%s'" % (
+                sys.exc_traceback.tb_lineno, e))
+            self.generalLogger.error(u"Response from Smappee was:'%s'" % responseFromSmappee)
 
     def handleCreateNewActuator(self, commandSentToSmappee, responseLocationId, responseFromSmappee):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: handleCreateNewActuator")
 
         try:
-            serviceLocationId = responseLocationId 
+            serviceLocationId = responseLocationId
             serviceLocationName, address, name = responseFromSmappee
 
             name = name + ' V2'
 
             smappeeActuatorDev = indigo.device.create(protocol=indigo.kProtocol.Plugin,
-                address=address,
-                name=name, 
-                description="Smappee Actuator", 
-                pluginId="com.autologplugin.indigoplugin.smappeecontroller",
-                deviceTypeId="smappeeActuator",
-                folder=pluginGlobal['deviceFolderId'],
-                props={"SupportsStatusRequest":False,
-                       "SupportsAllOff":True,
-                       "SupportsEnergyMeter":False,
-                       "SupportsEnergyMeterCurPower":False,
-                       "serviceLocationId":serviceLocationId,
-                       "serviceLocationName":serviceLocationName})
+                                                      address=address,
+                                                      name=name,
+                                                      description="Smappee Actuator",
+                                                      pluginId="com.autologplugin.indigoplugin.smappeecontroller",
+                                                      deviceTypeId="smappeeActuator",
+                                                      folder=self.globals['devicesFolderId'],
+                                                      props={"SupportsStatusRequest": False,
+                                                             "SupportsAllOff": True,
+                                                             "SupportsEnergyMeter": False,
+                                                             "SupportsEnergyMeterCurPower": False,
+                                                             "serviceLocationId": serviceLocationId,
+                                                             "serviceLocationName": serviceLocationName})
 
-            self.setSmappeeServiceLocationIdToDevId('DEQUEUE', 'smappeeActuator', serviceLocationId, smappeeActuatorDev.id, address, name)
+            self.setSmappeeServiceLocationIdToDevId('DEQUEUE', 'smappeeActuator', serviceLocationId,
+                                                    smappeeActuatorDev.id, address, name)
 
         except StandardError, e:
-            autolog(ERROR, u"StandardError detected in 'createNewActuator'. Line '%s' has error='%s'" % (sys.exc_traceback.tb_lineno, e))   
-            autolog(ERROR, u"Response from Smappee was:'%s'" % (responseFromSmappee))
-
+            self.generalLogger.error(u"StandardError detected in 'createNewActuator'. Line '%s' has error='%s'" % (
+                sys.exc_traceback.tb_lineno, e))
+            self.generalLogger.error(u"Response from Smappee was:'%s'" % responseFromSmappee)
 
     def validateSmappeResponse(self, commandSentToSmappee, responseLocationId, responseFromSmappee):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: validateSmappeResponse")
 
         try:
             if responseFromSmappee[0:12] == '<html><head>':
@@ -2369,41 +1868,46 @@ class Plugin(indigo.PluginBase):
                 else:
                     message = 'Unknown Smappee Response [2] = ' + message[0:20] + ' . . .'
 
-                autolog(ERROR, u"%s" % (message))
-                return (False, '')  
+                self.generalLogger.error(u"%s" % message)
+                return False, ''
 
-            # Ensure that response is enclose in square brackets '[' and ']'
+                # Ensure that response is enclose in square brackets '[' and ']'
             try:
                 if responseFromSmappee[:1] != '[':
                     responseFromSmappee = '[' + responseFromSmappee + ']'
             except StandardError, e:
-                autolog(ERROR, u"StandardError detected in 'validateSmappeResponse'. Type=%s, Len=%s" % (type(responseFromSmappee), len(responseFromSmappee)))
-                if len(responseFromSmappee) == 3:   
-                    autolog(ERROR, u"StandardError detected in 'validateSmappeResponse'. Item[1]=%s" % (responseFromSmappee[0]))
-                    autolog(ERROR, u"StandardError detected in 'validateSmappeResponse'. Item[2]=%s" % (responseFromSmappee[1]))
-                    autolog(ERROR, u"StandardError detected in 'validateSmappeResponse'. Item[3]=%s" % (responseFromSmappee[2]))
+                self.generalLogger.error(u"StandardError detected in 'validateSmappeResponse'. Type=%s, Len=%s" % (
+                    type(responseFromSmappee), len(responseFromSmappee)))
+                if len(responseFromSmappee) == 3:
+                    self.generalLogger.error(
+                        u"StandardError detected in 'validateSmappeResponse'. Item[1]=%s" % (responseFromSmappee[0]))
+                    self.generalLogger.error(
+                        u"StandardError detected in 'validateSmappeResponse'. Item[2]=%s" % (responseFromSmappee[1]))
+                    self.generalLogger.error(
+                        u"StandardError detected in 'validateSmappeResponse'. Item[3]=%s" % (responseFromSmappee[2]))
 
-                autolog(ERROR, u"StandardError detected in 'validateSmappeResponse'. Line '%s' has error='%s'" % (sys.exc_traceback.tb_lineno, e))   
-                autolog(ERROR, u"Response from Smappee was:'%s'" % (str(responseFromSmappee)))
+                self.generalLogger.error(
+                    u"StandardError detected in 'validateSmappeResponse'. Line '%s' has error='%s'" % (
+                        sys.exc_traceback.tb_lineno, e))
+                self.generalLogger.error(u"Response from Smappee was:'%s'" % (str(responseFromSmappee)))
 
             # Decode response
             decoded = json.loads(responseFromSmappee)
 
             # Ensure decoded is a list  
             if type(decoded) != 'list':
-                decoded = (decoded)
+                decoded = decoded
 
-            return (True, decoded)  
+            return True, decoded
 
         except StandardError, e:
-            autolog(ERROR, u"StandardError detected in 'validateSmappeResponse'. Line '%s' has error='%s'" % (sys.exc_traceback.tb_lineno, e))   
-            autolog(ERROR, u"Response from Smappee was:'%s'" % (str(responseFromSmappee)))
-            return (False, '')
-
+            self.generalLogger.error(u"StandardError detected in 'validateSmappeResponse'. Line '%s' has error='%s'" % (
+                sys.exc_traceback.tb_lineno, e))
+            self.generalLogger.error(u"Response from Smappee was:'%s'" % (str(responseFromSmappee)))
+            return False, ''
 
     def handleGetEvents(self, responseLocationId, decodedSmappeeResponse):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: handleGetEvents")
 
         try:
             for smappeeApplianceDev in indigo.devices.iter("self"):
@@ -2422,98 +1926,110 @@ class Plugin(indigo.PluginBase):
                     applianceStatus = 'OFF'
                 applianceId = decoding['applianceId']
                 smappeeType = 'A'
-                applianceId = str("%s%s" % (str(smappeeType), str("00%s" % (applianceId))[-3:]))
+                applianceId = str("%s%s" % (str(smappeeType), str("00%s" % applianceId)[-3:]))
 
-                if applianceId in pluginGlobal['smappeeServiceLocationIdToDevId'][responseLocationId]['applianceIds']:
-                    if pluginGlobal['smappeeServiceLocationIdToDevId'][responseLocationId]['applianceIds'][applianceId]['devId'] != 0:
+                if applianceId in self.globals['smappeeServiceLocationIdToDevId'][responseLocationId]['applianceIds']:
+                    if self.globals['smappeeServiceLocationIdToDevId'][responseLocationId]['applianceIds'][applianceId][
+                            'devId'] != 0:
 
-                        smappeeApplianceDevId = pluginGlobal['smappeeServiceLocationIdToDevId'][responseLocationId]['applianceIds'][applianceId]['devId']
+                        smappeeApplianceDevId = \
+                            self.globals['smappeeServiceLocationIdToDevId'][responseLocationId]['applianceIds'][
+                                applianceId]['devId']
                         showCurrentPower = smappeeApplianceDev.pluginProps['SupportsEnergyMeterCurPower']
-                        if showCurrentPower == True:
+                        if showCurrentPower:
                             smappeeApplianceDev.updateStateOnServer("curEnergyLevel", 0.0, uiValue="0 kWh")
 
                         smappeeApplianceDev = indigo.devices[smappeeApplianceDevId]
 
-
                         # Check if timestamp to be processed and if not bale out!
-                        if eventTimestamp > float(smappeeApplianceDev.states['smappeeApplianceEventLastRecordedTimestamp']):
-                            eventTimestampStr = datetime.datetime.fromtimestamp(int(eventTimestamp/1000)).strftime('%Y-%b-%d %H:%M:%S')
-                            smappeeApplianceDev.updateStateOnServer("smappeeApplianceEventLastRecordedTimestamp", float(eventTimestamp), uiValue=eventTimestampStr)
+                        if eventTimestamp > float(
+                                smappeeApplianceDev.states['smappeeApplianceEventLastRecordedTimestamp']):
+                            eventTimestampStr = datetime.datetime.fromtimestamp(int(eventTimestamp / 1000)).strftime(
+                                '%Y-%b-%d %H:%M:%S')
+                            smappeeApplianceDev.updateStateOnServer("smappeeApplianceEventLastRecordedTimestamp",
+                                                                    float(eventTimestamp), uiValue=eventTimestampStr)
                             showCurrentPower = smappeeApplianceDev.pluginProps['SupportsEnergyMeterCurPower']
                             showOnOffState = smappeeApplianceDev.pluginProps['showApplianceEventStatus']
                             hideEvents = smappeeApplianceDev.pluginProps['hideApplianceSmappeeEvents']
 
-                            activePowerStr = "%d W" % (activePower)
+                            activePowerStr = "%d W" % activePower
 
-                            if showCurrentPower == True:
-                                smappeeApplianceDev.updateStateOnServer("curEnergyLevel", activePower, uiValue=activePowerStr)
+                            if showCurrentPower:
+                                smappeeApplianceDev.updateStateOnServer("curEnergyLevel", activePower,
+                                                                        uiValue=activePowerStr)
 
-                            if showOnOffState == True:
+                            if showOnOffState:
                                 if applianceStatus == 'ON':
-                                    smappeeApplianceDev.updateStateOnServer("smappeeApplianceEventStatus", "UP", uiValue=activePowerStr)
+                                    smappeeApplianceDev.updateStateOnServer("smappeeApplianceEventStatus", "UP",
+                                                                            uiValue=activePowerStr)
                                 else:
-                                    smappeeApplianceDev.updateStateOnServer("smappeeApplianceEventStatus", "DOWN", uiValue=activePowerStr)
+                                    smappeeApplianceDev.updateStateOnServer("smappeeApplianceEventStatus", "DOWN",
+                                                                            uiValue=activePowerStr)
 
-                            if hideEvents == False:
-                                    eventTimestampStr = datetime.datetime.fromtimestamp(int(eventTimestamp/1000)).strftime('%H:%M:%S')
-                                    pass
-                                    autolog(INFO, u"recorded Smappee Appliance '%s' event at [%s], reading: %s" % (smappeeApplianceDev.name, eventTimestampStr, activePowerStr))
+                            if not hideEvents:
+                                eventTimestampStr = datetime.datetime.fromtimestamp(
+                                    int(eventTimestamp / 1000)).strftime('%H:%M:%S')
+                                self.generalLogger.info(
+                                    u"recorded Smappee Appliance '%s' event at [%s], reading: %s" % (
+                                        smappeeApplianceDev.name, eventTimestampStr, activePowerStr))
 
                             if float(indigo.server.apiVersion) >= 1.18:
                                 smappeeApplianceDev.updateStateImageOnServer(indigo.kStateImageSel.EnergyMeterOn)
 
         except StandardError, e:
-            autolog(ERROR, u"StandardError detected in 'handleGetEvents'. Line '%s' has error='%s'" % (sys.exc_traceback.tb_lineno, e))   
-            autolog(ERROR, u"Decoded response from Smappee was:'%s'" % (decodedSmappeeResponse))
-
+            self.generalLogger.error(u"StandardError detected in 'handleGetEvents'. Line '%s' has error='%s'" % (
+                sys.exc_traceback.tb_lineno, e))
+            self.generalLogger.error(u"Decoded response from Smappee was:'%s'" % decodedSmappeeResponse)
 
     def handleInitialise(self, commandSentToSmappee, responseLocationId, decodedSmappeeResponse):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: handleInitialise")
 
         try:
             for decoding in decodedSmappeeResponse:
                 for key, value in decoding.iteritems():
 
                     if key == 'access_token':
-                        pluginGlobal['config']['accessToken'] = value
-                        autolog(INFO, u"Authenticated with Smappee but initialisation still in progress ...")
+                        self.globals['config']['accessToken'] = value
+                        self.generalLogger.info(u"Authenticated with Smappee but initialisation still in progress ...")
                         # Now request Location info (but only if Initialise i.e. not if Refresh_Token)
                         if commandSentToSmappee == 'INITIALISE':
-                            self.sendToSmappeeQueue.put(['GET_SERVICE_LOCATIONS'])
+                            self.globals['queues']['sendToSmappee'].put(['GET_SERVICE_LOCATIONS'])
                     elif key == 'expires_in':
-                        pluginGlobal['config']['tokenExpiresIn'] = int(value)
-                        preAdjustedTokenExpiresDateTimeUtc = time.mktime((indigo.server.getTime() + datetime.timedelta(seconds=pluginGlobal['config']['tokenExpiresIn'])).timetuple())
-                        pluginGlobal['config']['tokenExpiresDateTimeUtc'] = preAdjustedTokenExpiresDateTimeUtc - float(pluginGlobal['polling']['seconds'] + 300)  # Adjust token expiry time taking account of polling time + 5 minute safety margin 
-                        autolog(DETAIL, u"tokenExpiresDateTimeUtc [T] : Was [%s], is now [%s]" % (preAdjustedTokenExpiresDateTimeUtc, pluginGlobal['config']['tokenExpiresDateTimeUtc']))
+                        self.globals['config']['tokenExpiresIn'] = int(value)
+                        preAdjustedTokenExpiresDateTimeUtc = time.mktime((indigo.server.getTime() + datetime.timedelta(seconds=self.globals['config']['tokenExpiresIn'])).timetuple())
+                        self.globals['config']['tokenExpiresDateTimeUtc'] = preAdjustedTokenExpiresDateTimeUtc - float(
+                            self.globals['polling'][
+                                'seconds'] + 300)  # Adjust token expiry time taking account of polling time + 5 minute safety margin
+                        self.generalLogger.debug(u"tokenExpiresDateTimeUtc [T] : Was [%s], is now [%s]" % (
+                            preAdjustedTokenExpiresDateTimeUtc, self.globals['config']['tokenExpiresDateTimeUtc']))
                     elif key == 'refresh_token':
-                        pluginGlobal['config']['refreshToken'] = value
+                        self.globals['config']['refreshToken'] = value
                     elif key == 'error':
-                        autolog(ERROR, u"SMAPPEE ERROR DETECTED [%s]: %s" % (commandSentToSmappee, value))
+                        self.generalLogger.error(u"SMAPPEE ERROR DETECTED [%s]: %s" % (commandSentToSmappee, value))
                     else:
                         pass  # Unknown key/value pair
-                        autolog(DETAIL, u"Unhandled key/value pair : K=[%s], V=[%s]" % (key, value))
+                        self.generalLogger.debug(u"Unhandled key/value pair : K=[%s], V=[%s]" % (key, value))
 
         except StandardError, e:
-            autolog(ERROR, u"StandardError detected in 'handleInitialise'. Line '%s' has error='%s'" % (sys.exc_traceback.tb_lineno, e))   
-            autolog(ERROR, u"Decoded response from Smappee was:'%s'" % (decodedSmappeeResponse))
-
+            self.generalLogger.error(u"StandardError detected in 'handleInitialise'. Line '%s' has error='%s'" % (
+                sys.exc_traceback.tb_lineno, e))
+            self.generalLogger.error(u"Decoded response from Smappee was:'%s'" % decodedSmappeeResponse)
 
     def handleGetServiceLocations(self, responseLocationId, decodedSmappeeResponse):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: handleGetServiceLocations")
 
         try:
             for decoding in decodedSmappeeResponse:
                 for key, value in decoding.iteritems():
                     if key == 'appName':
-                        pluginGlobal['config']['appName'] = str(value)
+                        self.globals['config']['appName'] = str(value)
                     elif key == 'serviceLocations':
                         for self.serviceLocationItem in value:
                             self.serviceLocationId = ""
                             self.serviceLocationName = ""
                             for key2, value2 in self.serviceLocationItem.iteritems():
-                                autolog(DETAIL, u"handleSmappeeResponse [H][SERVICELOCATION] -  [%s : %s]" % (key2, value2))
+                                self.generalLogger.debug(
+                                    u"handleSmappeeResponse [H][SERVICELOCATION] -  [%s : %s]" % (key2, value2))
                                 if key2 == 'serviceLocationId':
                                     self.serviceLocationId = str(value2)
                                 elif key2 == 'name':
@@ -2521,159 +2037,256 @@ class Plugin(indigo.PluginBase):
                                 else:
                                     pass  # Unknown key/value pair
                             if self.serviceLocationId != "":
-                                if self.serviceLocationId in pluginGlobal['smappeeServiceLocationIdToDevId']:
-                                    pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['name'] = self.serviceLocationName
-                                    if 'electricityId' not in pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]:
-                                        pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricityId'] = int(0)
-                                    if 'electricityNetId' not in pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]:
-                                        pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricityNetId'] = int(0)
-                                    if 'electricitySavedId' not in pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]:
-                                        pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricitySavedId'] = int(0)
-                                    if 'solarId' not in pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]:
-                                        pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['solarId'] = int(0)
-                                    if 'solarUsedId' not in pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]:
-                                        pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['solarUsedId'] = int(0)
-                                    if 'solarExportedId' not in pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]:
-                                        pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['solarExportedId'] = int(0)
-                                    if 'sensorIds' not in pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]:
-                                        pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['sensorIds'] = {}
-                                    if 'applianceIds' not in pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]:
-                                        pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['applianceIds'] = {}
-                                    if 'actuatorIds' not in pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]:
-                                        pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['actuatorIds'] = {}
-                                else:  
-                                    pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId] = {}
-                                    pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['name'] = self.serviceLocationName  
-                                    pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricityId'] = int(0)  
-                                    pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricityNetId'] = int(0)
-                                    pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricitySavedId'] = int(0)
-                                    pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['solarId'] = int(0)
-                                    pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['solarUsedId'] = int(0)
-                                    pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['solarExportedId'] = int(0)
-                                    pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['sensorIds'] = {}
-                                    pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['applianceIds'] = {}
-                                    pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['actuatorIds'] = {}
+                                if self.serviceLocationId in self.globals['smappeeServiceLocationIdToDevId']:
+                                    self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                        'name'] = self.serviceLocationName
+                                    if 'electricityId' not in self.globals['smappeeServiceLocationIdToDevId'][
+                                            self.serviceLocationId]:
+                                        self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                            'electricityId'] = int(0)
+                                    if 'electricityNetId' not in self.globals['smappeeServiceLocationIdToDevId'][
+                                            self.serviceLocationId]:
+                                        self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                            'electricityNetId'] = int(0)
+                                    if 'electricitySavedId' not in self.globals['smappeeServiceLocationIdToDevId'][
+                                            self.serviceLocationId]:
+                                        self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                            'electricitySavedId'] = int(0)
+                                    if 'solarId' not in self.globals['smappeeServiceLocationIdToDevId'][
+                                            self.serviceLocationId]:
+                                        self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                            'solarId'] = int(0)
+                                    if 'solarUsedId' not in self.globals['smappeeServiceLocationIdToDevId'][
+                                            self.serviceLocationId]:
+                                        self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                            'solarUsedId'] = int(0)
+                                    if 'solarExportedId' not in self.globals['smappeeServiceLocationIdToDevId'][
+                                            self.serviceLocationId]:
+                                        self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                            'solarExportedId'] = int(0)
+                                    if 'sensorIds' not in self.globals['smappeeServiceLocationIdToDevId'][
+                                            self.serviceLocationId]:
+                                        self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                            'sensorIds'] = {}
+                                    if 'applianceIds' not in self.globals['smappeeServiceLocationIdToDevId'][
+                                            self.serviceLocationId]:
+                                        self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                            'applianceIds'] = {}
+                                    if 'actuatorIds' not in self.globals['smappeeServiceLocationIdToDevId'][
+                                            self.serviceLocationId]:
+                                        self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                            'actuatorIds'] = {}
+                                else:
+                                    self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId] = {}
+                                    self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                        'name'] = self.serviceLocationName
+                                    self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                        'electricityId'] = int(0)
+                                    self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                        'electricityNetId'] = int(0)
+                                    self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                        'electricitySavedId'] = int(0)
+                                    self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                        'solarId'] = int(0)
+                                    self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                        'solarUsedId'] = int(0)
+                                    self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                        'solarExportedId'] = int(0)
+                                    self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                        'sensorIds'] = {}
+                                    self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                        'applianceIds'] = {}
+                                    self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                        'actuatorIds'] = {}
 
-                                autolog(DETAIL, u"handleSmappeeResponse [HH][SERVICELOCATION]: %s" % (pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]))
+                                self.generalLogger.debug(u"handleSmappeeResponse [HH][SERVICELOCATION]: %s" % (
+                                    self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId]))
 
-                        for self.serviceLocationId, self.serviceLocationDetails in pluginGlobal['smappeeServiceLocationIdToDevId'].iteritems():
+                        for self.serviceLocationId, self.serviceLocationDetails in self.globals[
+                                'smappeeServiceLocationIdToDevId'].iteritems():
 
                             for smappeeDev in indigo.devices.iter("self"):
 
                                 if smappeeDev.deviceTypeId == "smappeeElectricity":
-                                    autolog(DETAIL, u"handleSmappeeResponse [J] Checking new Smappee Service Location Id: [%s] against known Smappee Electricity Device Id [%s]" % (type(self.serviceLocationId), type(smappeeDev.address)))
+                                    self.generalLogger.debug(
+                                        u"handleSmappeeResponse [J] Checking new Smappee Service Location Id: [%s] against known Smappee Electricity Device Id [%s]" % (
+                                            type(self.serviceLocationId), type(smappeeDev.address)))
                                     if smappeeDev.pluginProps['serviceLocationId'] == self.serviceLocationId:
                                         if self.serviceLocationDetails['electricityId'] == 0:
-                                            pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricityId'] = smappeeDev.id
+                                            self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                                'electricityId'] = smappeeDev.id
                                         else:
                                             if self.serviceLocationDetails['electricityId'] != smappeeDev.id:
-                                                autolog(ERROR, u"DUPLICATE SMAPPEE ELECTRICITY DEVICE / LOCATION. L=[%s], D1=[%s], D2=[%s]" % (self.serviceLocationId, pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricityId'], smappeeDev.id))
+                                                self.generalLogger.error(
+                                                    u"DUPLICATE SMAPPEE ELECTRICITY DEVICE / LOCATION. L=[%s], D1=[%s], D2=[%s]" % (
+                                                        self.serviceLocationId,
+                                                        self.globals['smappeeServiceLocationIdToDevId'][
+                                                            self.serviceLocationId]['electricityId'], smappeeDev.id))
 
                                 elif smappeeDev.deviceTypeId == "smappeeElectricityNet":
-                                    autolog(DETAIL, u"handleSmappeeResponse [J] Checking new Smappee Service Location Id: [%s] against known Smappee Electricity Net Device Id [%s]" % (type(self.serviceLocationId), type(smappeeDev.address)))
+                                    self.generalLogger.debug(
+                                        u"handleSmappeeResponse [J] Checking new Smappee Service Location Id: [%s] against known Smappee Electricity Net Device Id [%s]" % (
+                                            type(self.serviceLocationId), type(smappeeDev.address)))
                                     if smappeeDev.pluginProps['serviceLocationId'] == self.serviceLocationId:
                                         if self.serviceLocationDetails['electricityNetId'] == 0:
-                                            pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricityNetId'] = smappeeDev.id
+                                            self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                                'electricityNetId'] = smappeeDev.id
                                         else:
                                             if self.serviceLocationDetails['electricityNetId'] != smappeeDev.id:
-                                                autolog(ERROR, u"DUPLICATE SMAPPEE ELECTRICITY NET DEVICE / LOCATION. L=[%s], D1=[%s], D2=[%s]" % (self.serviceLocationId, pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricityNetId'], smappeeDev.id))
+                                                self.generalLogger.error(
+                                                    u"DUPLICATE SMAPPEE ELECTRICITY NET DEVICE / LOCATION. L=[%s], D1=[%s], D2=[%s]" % (
+                                                        self.serviceLocationId,
+                                                        self.globals['smappeeServiceLocationIdToDevId'][
+                                                            self.serviceLocationId]['electricityNetId'], smappeeDev.id))
 
                                 elif smappeeDev.deviceTypeId == "smappeeElectricitySaved":
-                                    autolog(DETAIL, u"handleSmappeeResponse [J] Checking new Smappee Service Location Id: [%s] against known Smappee Electricity Saved Device Id [%s]" % (type(self.serviceLocationId), type(smappeeDev.address)))
+                                    self.generalLogger.debug(
+                                        u"handleSmappeeResponse [J] Checking new Smappee Service Location Id: [%s] against known Smappee Electricity Saved Device Id [%s]" % (
+                                            type(self.serviceLocationId), type(smappeeDev.address)))
                                     if smappeeDev.pluginProps['serviceLocationId'] == self.serviceLocationId:
                                         if self.serviceLocationDetails['electricitySavedId'] == 0:
-                                            pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricitySavedId'] = smappeeDev.id
+                                            self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                                'electricitySavedId'] = smappeeDev.id
                                         else:
                                             if self.serviceLocationDetails['electricitySavedId'] != smappeeDev.id:
-                                                autolog(ERROR, u"DUPLICATE SMAPPEE ELECTRICITY SAVED DEVICE / LOCATION. L=[%s], D1=[%s], D2=[%s]" % (self.serviceLocationId, pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricitySavedId'], smappeeDev.id))
+                                                self.generalLogger.error(
+                                                    u"DUPLICATE SMAPPEE ELECTRICITY SAVED DEVICE / LOCATION. L=[%s], D1=[%s], D2=[%s]" % (
+                                                        self.serviceLocationId,
+                                                        self.globals['smappeeServiceLocationIdToDevId'][
+                                                            self.serviceLocationId]['electricitySavedId'],
+                                                        smappeeDev.id))
 
                                 elif smappeeDev.deviceTypeId == "smappeeSolar":
-                                    autolog(DETAIL, u"handleSmappeeResponse [J] Checking new Smappee Service Location Id: [%s] against known Smappee Solar Device Id [%s]" % (type(self.serviceLocationId), type(smappeeDev.address)))
+                                    self.generalLogger.debug(
+                                        u"handleSmappeeResponse [J] Checking new Smappee Service Location Id: [%s] against known Smappee Solar Device Id [%s]" % (
+                                            type(self.serviceLocationId), type(smappeeDev.address)))
                                     if smappeeDev.pluginProps['serviceLocationId'] == self.serviceLocationId:
                                         if self.serviceLocationDetails['solarId'] == 0:
-                                            pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['solarId'] = smappeeDev.id
+                                            self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                                'solarId'] = smappeeDev.id
                                         else:
                                             if self.serviceLocationDetails['solarId'] != smappeeDev.id:
-                                                autolog(ERROR, u"DUPLICATE SMAPPEE SOLAR DEVICE / LOCATION. L=[%s], D1=[%s], D2=[%s]" % (self.serviceLocationId, pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['solarId'], smappeeDev.id))
+                                                self.generalLogger.error(
+                                                    u"DUPLICATE SMAPPEE SOLAR DEVICE / LOCATION. L=[%s], D1=[%s], D2=[%s]" % (
+                                                        self.serviceLocationId,
+                                                        self.globals['smappeeServiceLocationIdToDevId'][
+                                                            self.serviceLocationId]['solarId'], smappeeDev.id))
 
                                 elif smappeeDev.deviceTypeId == "smappeeSolarUsed":
-                                    autolog(DETAIL, u"handleSmappeeResponse [J] Checking new Smappee Service Location Id: [%s] against known Smappee Solar Used Device Id [%s]" % (type(self.serviceLocationId), type(smappeeDev.address)))
+                                    self.generalLogger.debug(
+                                        u"handleSmappeeResponse [J] Checking new Smappee Service Location Id: [%s] against known Smappee Solar Used Device Id [%s]" % (
+                                            type(self.serviceLocationId), type(smappeeDev.address)))
                                     if smappeeDev.pluginProps['serviceLocationId'] == self.serviceLocationId:
                                         if self.serviceLocationDetails['solarUsedId'] == 0:
-                                            pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['solarUsedId'] = smappeeDev.id
+                                            self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                                'solarUsedId'] = smappeeDev.id
                                         else:
                                             if self.serviceLocationDetails['solarUsedId'] != smappeeDev.id:
-                                                autolog(ERROR, u"DUPLICATE SMAPPEE SOLAR USED DEVICE / LOCATION. L=[%s], D1=[%s], D2=[%s]" % (self.serviceLocationId, pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['solarUsedId'], smappeeDev.id))
+                                                self.generalLogger.error(
+                                                    u"DUPLICATE SMAPPEE SOLAR USED DEVICE / LOCATION. L=[%s], D1=[%s], D2=[%s]" % (
+                                                        self.serviceLocationId,
+                                                        self.globals['smappeeServiceLocationIdToDevId'][
+                                                            self.serviceLocationId]['solarUsedId'], smappeeDev.id))
 
                                 elif smappeeDev.deviceTypeId == "smappeeSolarExported":
-                                    autolog(DETAIL, u"handleSmappeeResponse [J] Checking new Smappee Service Location Id: [%s] against known Smappee Solar Exported Device Id [%s]" % (type(self.serviceLocationId), type(smappeeDev.address)))
+                                    self.generalLogger.debug(
+                                        u"handleSmappeeResponse [J] Checking new Smappee Service Location Id: [%s] against known Smappee Solar Exported Device Id [%s]" % (
+                                            type(self.serviceLocationId), type(smappeeDev.address)))
                                     if smappeeDev.pluginProps['serviceLocationId'] == self.serviceLocationId:
                                         if self.serviceLocationDetails['solarExportedId'] == 0:
-                                            pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['solarExportedId'] = smappeeDev.id
+                                            self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                                'solarExportedId'] = smappeeDev.id
                                         else:
                                             if self.serviceLocationDetails['solarExportedId'] != smappeeDev.id:
-                                                autolog(ERROR, u"DUPLICATE SMAPPEE SOLAR EXPORTED DEVICE / LOCATION. L=[%s], D1=[%s], D2=[%s]" % (self.serviceLocationId, pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['solarExportedId'], smappeeDev.id))
+                                                self.generalLogger.error(
+                                                    u"DUPLICATE SMAPPEE SOLAR EXPORTED DEVICE / LOCATION. L=[%s], D1=[%s], D2=[%s]" % (
+                                                        self.serviceLocationId,
+                                                        self.globals['smappeeServiceLocationIdToDevId'][
+                                                            self.serviceLocationId]['solarExportedId'], smappeeDev.id))
 
                                 elif smappeeDev.deviceTypeId == "smappeeSensor":
-                                    autolog(DETAIL, u"handleSmappeeResponse [J] Checking new Smappee Service Location Id: [%s] against known Smappee Sensor Device Id [%s]" % (type(self.serviceLocationId), type(smappeeDev.address)))
+                                    self.generalLogger.debug(
+                                        u"handleSmappeeResponse [J] Checking new Smappee Service Location Id: [%s] against known Smappee Sensor Device Id [%s]" % (
+                                            type(self.serviceLocationId), type(smappeeDev.address)))
                                     if smappeeDev.pluginProps['serviceLocationId'] == self.serviceLocationId:
                                         if self.serviceLocationDetails['sensorIds'][smappeeDev.address] == 0:
-                                            pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['sensorIds'][smappeeDev.address] = {'name': smappeeDev.name, 'devId': smappeeDev.id}
+                                            self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                                'sensorIds'][smappeeDev.address] = {'name': smappeeDev.name,
+                                                                                    'devId': smappeeDev.id}
                                     #    else:
                                     #        if self.serviceLocationDetails['sensorIds'] != smappeeDev.id:
-                                    #           autolog(ERROR, u"DUPLICATE SMAPPEE SENSOR DEVICE / LOCATION. L=[%s], D1=[%s], D2=[%s]" % (self.serviceLocationId, pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricityId'], smappeeDev.id))
+                                    #           self.generalLogger.error(u"DUPLICATE SMAPPEE SENSOR DEVICE / LOCATION. L=[%s], D1=[%s], D2=[%s]" % (self.serviceLocationId, self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricityId'], smappeeDev.id))
 
                                 elif smappeeDev.deviceTypeId == "smappeeAppliance":
-                                    autolog(DETAIL, u"handleSmappeeResponse [J] Checking new Smappee Service Location Id: [%s] against known Smappee Appliance Device Id [%s]" % (type(self.serviceLocationId), type(smappeeDev.address)))
+                                    self.generalLogger.debug(
+                                        u"handleSmappeeResponse [J] Checking new Smappee Service Location Id: [%s] against known Smappee Appliance Device Id [%s]" % (
+                                            type(self.serviceLocationId), type(smappeeDev.address)))
                                     if smappeeDev.pluginProps['serviceLocationId'] == self.serviceLocationId:
                                         if self.serviceLocationDetails['applianceIds'][smappeeDev.address] == 0:
-                                            pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['applianceIds'][smappeeDev.address] = {'name': smappeeDev.name, 'devId': smappeeDev.id}
+                                            self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                                'applianceIds'][smappeeDev.address] = {'name': smappeeDev.name,
+                                                                                       'devId': smappeeDev.id}
                                     #    else:
                                     #        if self.serviceLocationDetails['electricity'] != smappeeDev.id:
-                                    #           autolog(ERROR, u"DUPLICATE SMAPPEE APPLIANCE DEVICE / LOCATION. L=[%s], D1=[%s], D2=[%s]" % (self.serviceLocationId, pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricityId'], smappeeDev.id))
+                                    #           self.generalLogger.error(u"DUPLICATE SMAPPEE APPLIANCE DEVICE / LOCATION. L=[%s], D1=[%s], D2=[%s]" % (self.serviceLocationId, self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricityId'], smappeeDev.id))
 
                                 elif smappeeDev.deviceTypeId == "smappeeActuator":
-                                    autolog(DETAIL, u"handleSmappeeResponse [J] Checking new Smappee Service Location Id: [%s] against known Smappee Actuator Device Id [%s]" % (type(self.serviceLocationId), type(smappeeDev.address)))
+                                    self.generalLogger.debug(
+                                        u"handleSmappeeResponse [J] Checking new Smappee Service Location Id: [%s] against known Smappee Actuator Device Id [%s]" % (
+                                            type(self.serviceLocationId), type(smappeeDev.address)))
                                     if smappeeDev.pluginProps['serviceLocationId'] == self.serviceLocationId:
                                         if self.serviceLocationDetails['actuatorIds'][smappeeDev.address] == 0:
-                                            pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['actuatorIds'][smappeeDev.address] = {'name': smappeeDev.name, 'devId': smappeeDev.id}
+                                            self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId][
+                                                'actuatorIds'][smappeeDev.address] = {'name': smappeeDev.name,
+                                                                                      'devId': smappeeDev.id}
                                     #    else:
                                     #        if self.serviceLocationDetails['electricity'] != smappeeDev.id:
-                                    #            autolog(ERROR, u"DUPLICATE SMAPPEE ACTUATOR DEVICE / LOCATION. L=[%s], D1=[%s], D2=[%s]" % (self.serviceLocationId, pluginGlobal['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricityId'], smappeeDev.id))
+                                    #            self.generalLogger.error(u"DUPLICATE SMAPPEE ACTUATOR DEVICE / LOCATION. L=[%s], D1=[%s], D2=[%s]" % (self.serviceLocationId, self.globals['smappeeServiceLocationIdToDevId'][self.serviceLocationId]['electricityId'], smappeeDev.id))
 
-                            autolog(DETAIL, u"handleSmappeeResponse [HH][SERVICELOCATION DETAILS]: %s = %s" % (self.serviceLocationId, self.serviceLocationDetails))
+                            self.generalLogger.debug(u"handleSmappeeResponse [HH][SERVICELOCATION DETAILS]: %s = %s" % (
+                                self.serviceLocationId, self.serviceLocationDetails))
 
-                            self.sendToSmappeeQueue.put(['GET_SERVICE_LOCATION_INFO',self.serviceLocationId])
+                            self.globals['queues']['sendToSmappee'].put(['GET_SERVICE_LOCATION_INFO', self.serviceLocationId])
 
-                        if pluginGlobal['pluginInitialised'] == False:
-                            autolog(DETAIL, u"handleSmappeeResponse [HH][SERVICELOCATION plugin initialised]: %s " % (pluginGlobal['pluginInitialised']))
-                            pluginGlobal['pluginInitialised'] = True
-                            autolog(INFO, u"Initialisation completed.")
+                        if not self.globals['pluginInitialised']:
+                            self.generalLogger.debug(
+                                u"handleSmappeeResponse [HH][SERVICELOCATION plugin initialised]: %s " % (
+                                    self.globals['pluginInitialised']))
+                            self.globals['pluginInitialised'] = True
+                            self.generalLogger.info(u"Initialisation completed.")
+
+                            for serviceLocationId, serviceLocationDetails in self.globals['smappeeServiceLocationIdToDevId'].iteritems():
+                                self.globals['queues']['sendToSmappee'].put(["GET_CONSUMPTION", str(serviceLocationId)])
+                                self.globals['queues']['sendToSmappee'].put(["GET_EVENTS", str(serviceLocationId)])
+                                self.globals['queues']['sendToSmappee'].put(["GET_SENSOR_CONSUMPTION", str(serviceLocationId)])
+
                         else:
-                            pass
-                            autolog(DETAIL, u"handleSmappeeResponse [HH][SERVICELOCATION plugin already initialised]: %s " % (pluginGlobal['pluginInitialised']))
+                            self.generalLogger.debug(
+                                u"handleSmappeeResponse [HH][SERVICELOCATION plugin already initialised]: %s " % (
+                                    self.globals['pluginInitialised']))
 
-                        autolog(DETAIL, u"handleSmappeeResponse [HH][SERVICELOCATION pluginInitialised: FINAL]: %s " % (pluginGlobal['pluginInitialised']))
+                        self.generalLogger.debug(
+                            u"handleSmappeeResponse [HH][SERVICELOCATION pluginInitialised: FINAL]: %s " % (
+                                self.globals['pluginInitialised']))
 
                     elif key == 'error':
-                        autolog(ERROR, u"SMAPPEE ERROR DETECTED [%s]: %s" % (commandSentToSmappee, value))
+                        self.generalLogger.error(u"SMAPPEE ERROR DETECTED [%s]: %s" % (decodedSmappeeResponse, value))
                     else:
-                        pass  # Unknown key/value pair
-                        autolog(DETAIL, u"Unhandled key/value pair : K=[%s], V=[%s]" % (key, value))
+                        # Unknown key/value pair
+                        self.generalLogger.debug(u"Unhandled key/value pair : K=[%s], V=[%s]" % (key, value))
 
         except StandardError, e:
-            autolog(ERROR, u"StandardError detected in 'handleGetServiceLocations'. Line '%s' has error='%s'" % (sys.exc_traceback.tb_lineno, e))   
-            autolog(ERROR, u"Decoded response from Smappee was:'%s'" % (decodedSmappeeResponse))
-
+            self.generalLogger.error(
+                u"StandardError detected in 'handleGetServiceLocations'. Line '%s' has error='%s'" % (
+                    sys.exc_traceback.tb_lineno, e))
+            self.generalLogger.error(u"Decoded response from Smappee was:'%s'" % decodedSmappeeResponse)
 
     def handleGetServiceLocationInfo(self, responseLocationId, decodedSmappeeResponse):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: handleGetServiceLocationInfo")
 
         try:
             for decoding in decodedSmappeeResponse:
                 for key, value in decoding.iteritems():
-
                     if key == 'serviceLocationId':
                         pass
                     elif key == 'name':
@@ -2694,46 +2307,62 @@ class Plugin(indigo.PluginBase):
                             self.sensorName = ""
                             self.sensorId = ""
                             for key2, value2 in self.sensorItem.iteritems():
-                                autolog(DETAIL, u"handleSmappeeResponse [F][SENSOR] -  [%s : %s]" % (key2, value2))
+                                self.generalLogger.debug(
+                                    u"handleSmappeeResponse [F][SENSOR] -  [%s : %s]" % (key2, value2))
                                 if key2 == 'id':
                                     smappeeType = 'GW'  # Sensor for Gas Water
-                                    self.sensorId = str("%s%s" % (str(smappeeType), str("00%s" % (value2))[-2:]))
+                                    self.sensorId = str("%s%s" % (str(smappeeType), str("00%s" % value2)[-2:]))
                                 elif key2 == 'name':
                                     self.sensorName = str(value2)
                                 else:
                                     pass  # Unknown key/value pair
-                            autolog(DETAIL, u"handleSmappeeResponse [FF][SENSOR] - [%s]-[%s]" % (self.sensorId, self.sensorName))
+                            self.generalLogger.debug(
+                                u"handleSmappeeResponse [FF][SENSOR] - [%s]-[%s]" % (self.sensorId, self.sensorName))
 
                             if self.sensorId != "":
                                 # At this point we have detected a Smappee Sensor Device
-                                pluginGlobal['config']['supportsSensor'] = True
+                                self.globals['config']['supportsSensor'] = True
+
                                 # Two Indigo devices can be created for each Smappee Sensor to represent the two channels (inputs) which could be measuring both Gas and Water
                                 # Define a common function (below) to add an Indigo device
                                 def createSensor(sensorIdModifier):
                                     if self.sensorName == "":
                                         sensorName = str("[%s-%s] 'Unlabeled'" % (self.sensorId, sensorIdModifier))
                                     else:
-                                        sensorName = str("[%s-%s] %s" % (self.sensorId, sensorIdModifier, str(self.sensorName).strip()))
+                                        sensorName = str("[%s-%s] %s" % (
+                                            self.sensorId, sensorIdModifier, str(self.sensorName).strip()))
 
                                     sensorId = self.sensorId + '-' + sensorIdModifier
 
-                                    autolog(DETAIL, u"handleSmappeeResponse [FF-A][SENSOR] - [%s]-[%s]" % (sensorId, sensorName))
+                                    self.generalLogger.debug(
+                                        u"handleSmappeeResponse [FF-A][SENSOR] - [%s]-[%s]" % (sensorId, sensorName))
 
-                                    if sensorId in pluginGlobal['smappeeServiceLocationIdToDevId'][responseLocationId]['sensorIds']:
-                                        autolog(DETAIL, u"handleSmappeeResponse [FF-B][SENSOR] - [%s]-[%s]" % (sensorId, sensorName))
-                                        if pluginGlobal['smappeeServiceLocationIdToDevId'][responseLocationId]['sensorIds'][sensorId]['devId'] != 0:
+                                    if sensorId in self.globals['smappeeServiceLocationIdToDevId'][responseLocationId][
+                                            'sensorIds']:
+                                        self.generalLogger.debug(u"handleSmappeeResponse [FF-B][SENSOR] - [%s]-[%s]" % (
+                                            sensorId, sensorName))
+                                        if self.globals['smappeeServiceLocationIdToDevId'][responseLocationId][
+                                                'sensorIds'][sensorId]['devId'] != 0:
                                             try:
-                                                autolog(DETAIL, u"handleSmappeeResponse [FF-C][SENSOR] - [%s]-[%s]" % (sensorId, sensorName))
-                                                # Can be either Gas or Water
-                                                smappeeSensorDev = indigo.devices[pluginGlobal['smappeeServiceLocationIdToDevId'][responseLocationId]['sensorIds'][sensorId]['devId']]
-                                                if smappeeSensorDev.states['smappeeSensorOnline'] == False:
-                                                    smappeeSensorDev.updateStateOnServer("smappeeSensorOnline", True, uiValue='online')
+                                                self.generalLogger.debug(
+                                                    u"handleSmappeeResponse [FF-C][SENSOR] - [%s]-[%s]" % (
+                                                        sensorId, sensorName))
+                                                #  Can be either Gas or Water
+                                                smappeeSensorDev = indigo.devices[
+                                                    self.globals['smappeeServiceLocationIdToDevId'][responseLocationId][
+                                                        'sensorIds'][sensorId]['devId']]
+                                                if not smappeeSensorDev.states['smappeeSensorOnline']:
+                                                    smappeeSensorDev.updateStateOnServer("smappeeSensorOnline", True,
+                                                                                         uiValue='online')
                                             except:
                                                 pass
                                     else:
-                                        # Can be either Gas or Water
-                                        self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeSensor', responseLocationId, 0, sensorId, sensorName)
-                                        autolog(DETAIL, u"handleSmappeeResponse [FF-D][SENSOR] - [%s]-[%s]" % (sensorId, sensorName))
+                                        #  Can be either Gas or Water
+                                        self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeSensor',
+                                                                                responseLocationId, 0, sensorId,
+                                                                                sensorName)
+                                        self.generalLogger.debug(u"handleSmappeeResponse [FF-D][SENSOR] - [%s]-[%s]" % (
+                                            sensorId, sensorName))
 
                                 # Now add the devices
                                 createSensor('A')
@@ -2744,139 +2373,185 @@ class Plugin(indigo.PluginBase):
                             self.applianceName = ""
                             self.applianceId = ""
                             for key2, value2 in self.applianceItem.iteritems():
-                                autolog(DETAIL, u"handleSmappeeResponse [F][APPLIANCE] -  [%s : %s]" % (key2, value2))
+                                self.generalLogger.debug(
+                                    u"handleSmappeeResponse [F][APPLIANCE] -  [%s : %s]" % (key2, value2))
                                 if key2 == 'id':
                                     smappeeType = 'A'  # Appliance
-                                    self.applianceId = str("%s%s" % (str(smappeeType), str("00%s" % (value2))[-3:]))
+                                    self.applianceId = str("%s%s" % (str(smappeeType), str("00%s" % value2)[-3:]))
                                 elif key2 == 'name':
                                     self.applianceName = str(value2)
                                 elif key2 == 'type':
                                     self.applianceType = value2
                                 else:
                                     pass  # Unknown key/value pair
-                            autolog(DETAIL, u"handleSmappeeResponse [FF][APPLIANCE] - [%s]-[%s]-[%s]" % (self.applianceId, self.applianceName, self.applianceType))
+                            self.generalLogger.debug(u"handleSmappeeResponse [FF][APPLIANCE] - [%s]-[%s]-[%s]" % (
+                                self.applianceId, self.applianceName, self.applianceType))
 
                             if self.applianceId != "":
                                 if self.applianceName == "":
-                                    self.applianceName = str("[%s] 'Unlabeled'" % (self.applianceId))
+                                    self.applianceName = str("[%s] 'Unlabeled'" % self.applianceId)
                                 else:
-                                    self.applianceName = str("[%s] %s" % (self.applianceId, str(self.applianceName).strip()))
+                                    self.applianceName = str(
+                                        "[%s] %s" % (self.applianceId, str(self.applianceName).strip()))
 
-                                if self.applianceId in pluginGlobal['smappeeServiceLocationIdToDevId'][responseLocationId]['applianceIds']:
-                                    if pluginGlobal['smappeeServiceLocationIdToDevId'][responseLocationId]['applianceIds'][self.applianceId]['devId'] != 0:
+                                if self.applianceId in \
+                                        self.globals['smappeeServiceLocationIdToDevId'][responseLocationId][
+                                            'applianceIds']:
+                                    if \
+                                            self.globals['smappeeServiceLocationIdToDevId'][responseLocationId][
+                                                'applianceIds'][
+                                                self.applianceId]['devId'] != 0:
                                         try:
-                                            smappeeApplianceDev = indigo.devices[pluginGlobal['smappeeServiceLocationIdToDevId'][responseLocationId]['applianceIds'][self.applianceId]['devId']]
-                                            if smappeeApplianceDev.states['smappeeApplianceOnline'] == False:
-                                                smappeeApplianceDev.updateStateOnServer("smappeeApplianceOnline", True, uiValue='online')
+                                            smappeeApplianceDev = indigo.devices[
+                                                self.globals['smappeeServiceLocationIdToDevId'][responseLocationId][
+                                                    'applianceIds'][self.applianceId]['devId']]
+                                            if not smappeeApplianceDev.states['smappeeApplianceOnline']:
+                                                smappeeApplianceDev.updateStateOnServer("smappeeApplianceOnline", True,
+                                                                                        uiValue='online')
                                         except:
                                             pass
                                 else:
-                                    self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeAppliance', responseLocationId, 0, self.applianceId, self.applianceName)
+                                    self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeAppliance',
+                                                                            responseLocationId, 0, self.applianceId,
+                                                                            self.applianceName)
 
                     elif key == 'actuators':
                         for self.actuatorItem in value:
                             self.actuatorName = ""
                             self.actuatorId = ""
                             for key2, value2 in self.actuatorItem.iteritems():
-                                autolog(DETAIL, u"handleSmappeeResponse [F2][ACTUATOR] -  [%s : %s]" % (key2, value2))
+                                self.generalLogger.debug(
+                                    u"handleSmappeeResponse [F2][ACTUATOR] -  [%s : %s]" % (key2, value2))
                                 if key2 == 'id':
                                     smappeeType = 'P'  # Plug
-                                    self.actuatorId = str("%s%s" % (str(smappeeType), str("00%s" % (value2))[-3:]))
+                                    self.actuatorId = str("%s%s" % (str(smappeeType), str("00%s" % value2)[-3:]))
                                 elif key2 == 'name':
                                     self.actuatorName = str(value2)
                                 else:
                                     pass  # Unknown key/value pair
-                            autolog(DETAIL, u"handleSmappeeResponse [F2F][ACTUATOR] - [%s]-[%s]" % (self.actuatorId, self.actuatorName))
+                            self.generalLogger.debug(u"handleSmappeeResponse [F2F][ACTUATOR] - [%s]-[%s]" % (
+                                self.actuatorId, self.actuatorName))
 
                             if self.actuatorId != "":
                                 if self.actuatorName == "":
-                                    self.actuatorName = str("[%s] 'Unlabeled'" % (self.actuatorId))
+                                    self.actuatorName = str("[%s] 'Unlabeled'" % self.actuatorId)
                                 else:
-                                    self.actuatorName = str("[%s] %s" % (self.actuatorId, str(self.actuatorName).strip()))
+                                    self.actuatorName = str(
+                                        "[%s] %s" % (self.actuatorId, str(self.actuatorName).strip()))
 
-                                if self.actuatorId in pluginGlobal['smappeeServiceLocationIdToDevId'][responseLocationId]['actuatorIds']:
-                                    if pluginGlobal['smappeeServiceLocationIdToDevId'][responseLocationId]['actuatorIds'][self.actuatorId]['devId'] != 0:
+                                if self.actuatorId in \
+                                        self.globals['smappeeServiceLocationIdToDevId'][responseLocationId][
+                                            'actuatorIds']:
+                                    if \
+                                            self.globals['smappeeServiceLocationIdToDevId'][responseLocationId][
+                                                'actuatorIds'][
+                                                self.actuatorId]['devId'] != 0:
                                         try:
-                                            smappeeActuatorDev = indigo.devices[pluginGlobal['smappeeServiceLocationIdToDevId'][responseLocationId]['actuatorIds'][self.actuatorId]['devId']]
-                                            if smappeeActuatorDev.states['smappeeActuatorOnline'] == False:
-                                                smappeeActuatorDev.updateStateOnServer("smappeeActuatorOnline", True, uiValue='online')
-                                            # autolog(DETAIL, u"handleSmappeeResponse [J] Checking new Smappee Appliance Id: [%s] against known Smappee Appliance Id [%s]" % (self.applianceId, smappeeApplianceDev.address))
+                                            smappeeActuatorDev = indigo.devices[
+                                                self.globals['smappeeServiceLocationIdToDevId'][responseLocationId][
+                                                    'actuatorIds'][self.actuatorId]['devId']]
+                                            if not smappeeActuatorDev.states['smappeeActuatorOnline']:
+                                                smappeeActuatorDev.updateStateOnServer("smappeeActuatorOnline", True,
+                                                                                       uiValue='online')
+                                            # self.generalLogger.debug(u"handleSmappeeResponse [J] Checking new Smappee Appliance Id: [%s] against known Smappee Appliance Id [%s]" % (self.applianceId, smappeeApplianceDev.address))
                                         except:
                                             pass
                                 else:
-                                    self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeActuator', responseLocationId, 0, self.actuatorId, self.actuatorName)
+                                    self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeActuator',
+                                                                            responseLocationId, 0, self.actuatorId,
+                                                                            self.actuatorName)
 
                     elif key == 'error':
-                        autolog(ERROR, u"SMAPPEE ERROR DETECTED [%s]: %s" % (commandSentToSmappee, value))
+                        self.generalLogger.error(u"SMAPPEE ERROR DETECTED [%s]: %s" % (decodedSmappeeResponse, value))
                     else:
                         pass  # Unknown key/value pair
-                        autolog(DETAIL, u"Unhandled key/value pair : K=[%s], V=[%s]" % (key, value))
+                        self.generalLogger.debug(u"Unhandled key/value pair : K=[%s], V=[%s]" % (key, value))
 
         except StandardError, e:
-            autolog(ERROR, u"StandardError detected in 'handleGetServiceLocationInfo'. Line '%s' has error='%s'" % (sys.exc_traceback.tb_lineno, e))   
-            autolog(ERROR, u"Decoded response from Smappee was:'%s'" % (responseFromSmappee))
-
+            self.generalLogger.error(
+                u"StandardError detected in 'handleGetServiceLocationInfo'. Line '%s' has error='%s'" % (
+                    sys.exc_traceback.tb_lineno, e))
+            self.generalLogger.error(u"Decoded response from Smappee was:'%s'" % decodedSmappeeResponse)
 
     def handleGetConsumption(self, commandSentToSmappee, responseLocationId, decodedSmappeeResponse):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: handleGetConsumption")
 
         try:
             for decoding in decodedSmappeeResponse:
                 for key, value in decoding.iteritems():
 
-
                     if key == 'serviceLocationId':
                         pass
                     elif key == 'consumptions':
 
-                        if pluginGlobal['config']['supportsElectricity'] == True:
-                            devElectricity = indigo.devices[pluginGlobal['smappeeServiceLocationIdToDevId'][responseLocationId]['electricityId']]
-                            self.lastReadingElectricityUtc = pluginGlobal['smappees'][devElectricity.id]['lastReadingElectricityUtc']
-                            autolog(DETAIL, u"handleSmappeeResponse [LRU-ELECTRICITY]: %s" % (self.lastReadingElectricityUtc))
+                        if self.globals['config']['supportsElectricity']:
+                            devElectricity = indigo.devices[
+                                self.globals['smappeeServiceLocationIdToDevId'][responseLocationId]['electricityId']]
+                            self.lastReadingElectricityUtc = self.globals['smappees'][devElectricity.id][
+                                'lastReadingElectricityUtc']
+                            self.generalLogger.debug(
+                                u"handleSmappeeResponse [LRU-ELECTRICITY]: %s" % self.lastReadingElectricityUtc)
 
-                            if devElectricity.states['smappeeElectricityOnline'] == False:
+                            if not devElectricity.states['smappeeElectricityOnline']:
                                 devElectricity.updateStateOnServer("smappeeElectricityOnline", True, uiValue='online')
 
-                        if pluginGlobal['config']['supportsElectricityNet'] == True:
-                            devElectricityNet = indigo.devices[pluginGlobal['smappeeServiceLocationIdToDevId'][responseLocationId]['electricityNetId']]
-                            self.lastReadingElectricityNetUtc = pluginGlobal['smappees'][devElectricityNet.id]['lastReadingElectricityNetUtc']
-                            autolog(DETAIL, u"handleSmappeeResponse [LRU-NET-ELECTRICITY]: %s" % (self.lastReadingElectricityNetUtc))
+                        if self.globals['config']['supportsElectricityNet']:
+                            devElectricityNet = indigo.devices[
+                                self.globals['smappeeServiceLocationIdToDevId'][responseLocationId]['electricityNetId']]
+                            self.lastReadingElectricityNetUtc = self.globals['smappees'][devElectricityNet.id][
+                                'lastReadingElectricityNetUtc']
+                            self.generalLogger.debug(u"handleSmappeeResponse [LRU-NET-ELECTRICITY]: %s" % (
+                                self.lastReadingElectricityNetUtc))
 
-                            if devElectricityNet.states['smappeeElectricityNetOnline'] == False:
-                                devElectricityNet.updateStateOnServer("smappeeElectricityNetOnline", True, uiValue='online')
+                            if not devElectricityNet.states['smappeeElectricityNetOnline']:
+                                devElectricityNet.updateStateOnServer("smappeeElectricityNetOnline", True,
+                                                                      uiValue='online')
 
-                        if pluginGlobal['config']['supportsElectricitySaved'] == True:
-                            devElectricitySaved = indigo.devices[pluginGlobal['smappeeServiceLocationIdToDevId'][responseLocationId]['electricitySavedId']]
-                            self.lastReadingElectricitySavedUtc = pluginGlobal['smappees'][devElectricitySaved.id]['lastReadingElectricitySavedUtc']
-                            autolog(DETAIL, u"handleSmappeeResponse [LRU-SAVED-ELECTRICITY]: %s" % (self.lastReadingElectricitySavedUtc))
+                        if self.globals['config']['supportsElectricitySaved']:
+                            devElectricitySaved = indigo.devices[
+                                self.globals['smappeeServiceLocationIdToDevId'][responseLocationId][
+                                    'electricitySavedId']]
+                            self.lastReadingElectricitySavedUtc = self.globals['smappees'][devElectricitySaved.id][
+                                'lastReadingElectricitySavedUtc']
+                            self.generalLogger.debug(u"handleSmappeeResponse [LRU-SAVED-ELECTRICITY]: %s" % (
+                                self.lastReadingElectricitySavedUtc))
 
-                            if devElectricitySaved.states['smappeeElectricitySavedOnline'] == False:
-                                devElectricitySaved.updateStateOnServer("smappeeElectricitySavedOnline", True, uiValue='online')
+                            if not devElectricitySaved.states['smappeeElectricitySavedOnline']:
+                                devElectricitySaved.updateStateOnServer("smappeeElectricitySavedOnline", True,
+                                                                        uiValue='online')
 
-                        if pluginGlobal['config']['supportsSolar'] == True:
-                            devSolar = indigo.devices[pluginGlobal['smappeeServiceLocationIdToDevId'][responseLocationId]['solarId']]
-                            self.lastReadingSolarUtc = pluginGlobal['smappees'][devSolar.id]['lastReadingSolarUtc']
-                            autolog(DETAIL, u"handleSmappeeResponse [LRU-SOLAR]: %s" % (self.lastReadingSolarUtc))
+                        if self.globals['config']['supportsSolar']:
+                            devSolar = indigo.devices[
+                                self.globals['smappeeServiceLocationIdToDevId'][responseLocationId]['solarId']]
+                            self.lastReadingSolarUtc = self.globals['smappees'][devSolar.id]['lastReadingSolarUtc']
+                            self.generalLogger.debug(
+                                u"handleSmappeeResponse [LRU-SOLAR]: %s" % self.lastReadingSolarUtc)
 
-                            if devSolar.states['smappeeSolarOnline'] == False:
+                            if not devSolar.states['smappeeSolarOnline']:
                                 devSolar.updateStateOnServer("smappeeSolarOnline", True, uiValue='online')
 
-                        if pluginGlobal['config']['supportsSolarUsed'] == True:
-                            devSolarUsed = indigo.devices[pluginGlobal['smappeeServiceLocationIdToDevId'][responseLocationId]['solarUsedId']]
-                            self.lastReadingSolarUsedUtc = pluginGlobal['smappees'][devSolarUsed.id]['lastReadingSolarUsedUtc']
-                            autolog(DETAIL, u"handleSmappeeResponse [LRU-SOLAR-USED]: %s" % (self.lastReadingSolarUsedUtc))
+                        if self.globals['config']['supportsSolarUsed']:
+                            devSolarUsed = indigo.devices[
+                                self.globals['smappeeServiceLocationIdToDevId'][responseLocationId]['solarUsedId']]
+                            self.lastReadingSolarUsedUtc = self.globals['smappees'][devSolarUsed.id][
+                                'lastReadingSolarUsedUtc']
+                            self.generalLogger.debug(
+                                u"handleSmappeeResponse [LRU-SOLAR-USED]: %s" % self.lastReadingSolarUsedUtc)
 
-                            if devSolarUsed.states['smappeeSolarUsedOnline'] == False:
+                            if not devSolarUsed.states['smappeeSolarUsedOnline']:
                                 devSolarUsed.updateStateOnServer("smappeeSolarUsedOnline", True, uiValue='online')
 
-                        if pluginGlobal['config']['supportsSolarExported'] == True:
-                            devSolarExported = indigo.devices[pluginGlobal['smappeeServiceLocationIdToDevId'][responseLocationId]['solarExportedId']]
-                            self.lastReadingSolarExportedUtc = pluginGlobal['smappees'][devSolarExported.id]['lastReadingSolarExportedUtc']
-                            autolog(DETAIL, u"handleSmappeeResponse [LRU-SOLAR-EXPORTED]: %s" % (self.lastReadingSolarExportedUtc))
+                        if self.globals['config']['supportsSolarExported']:
+                            devSolarExported = indigo.devices[
+                                self.globals['smappeeServiceLocationIdToDevId'][responseLocationId]['solarExportedId']]
+                            self.lastReadingSolarExportedUtc = self.globals['smappees'][devSolarExported.id][
+                                'lastReadingSolarExportedUtc']
+                            self.generalLogger.debug(
+                                u"handleSmappeeResponse [LRU-SOLAR-EXPORTED]: %s" % self.lastReadingSolarExportedUtc)
 
-                            if devSolarExported.states['smappeeSolarExportedOnline'] == False:
-                                devSolarExported.updateStateOnServer("smappeeSolarExportedOnline", True, uiValue='online')
+                            if not devSolarExported.states['smappeeSolarExportedOnline']:
+                                devSolarExported.updateStateOnServer("smappeeSolarExportedOnline", True,
+                                                                     uiValue='online')
 
                         self.timestampUtcLast = 0  # Common to both all
 
@@ -2922,16 +2597,17 @@ class Plugin(indigo.PluginBase):
                         self.solarExportedMaximum = 0.0
                         self.solarExportedPrevious = 0.0
 
-                        if pluginGlobal['SQL']['enabled'] == True:
+                        if self.globals['SQL']['enabled']:
                             try:
-                                pluginGlobal['SQL']['connection'] = sql3.connect(pluginGlobal['SQL']['db'])
-                                pluginGlobal['SQL']['cursor'] = pluginGlobal['SQL']['connection'].cursor()
+                                self.globals['SQL']['connection'] = sql3.connect(self.globals['SQL']['db'])
+                                self.globals['SQL']['cursor'] = self.globals['SQL']['connection'].cursor()
                             except sql3.Error, e:
-                                if pluginGlobal['SQL']['connection']:
-                                    pluginGlobal['SQL']['connection'].rollback()
-                                autolog(ERROR, u"SMAPPEE ERROR DETECTED WITH SQL CONNECTION: %s" % (e.args[0]))
+                                if self.globals['SQL']['connection']:
+                                    self.globals['SQL']['connection'].rollback()
+                                self.generalLogger.error(
+                                    u"SMAPPEE ERROR DETECTED WITH SQL CONNECTION: %s" % (e.args[0]))
 
-                                pluginGlobal['SQL']['enabled'] = False  # Disable SQL processing
+                                self.globals['SQL']['enabled'] = False  # Disable SQL processing
 
                         for self.readingItem in value:
 
@@ -3007,16 +2683,24 @@ class Plugin(indigo.PluginBase):
                                 else:
                                     self.solarExported = 0.0
 
-                                if self.timestampDetected == True:
-                                    ts = datetime.datetime.fromtimestamp(int(int(self.timestampUtc)/1000)).strftime('%Y-%m-%d %H:%M:%S')
-                                    autolog(DETAIL, u"ELECTRICITY/SOLAR: DateTime=%s, Electricity=%s, Net=%s, Saved=%s, Solar=%s, Solar Used=%s, Solar Exported=%s" % (ts, self.electricity, self.electricityNet, self.electricitySaved, self.solar, self.solarUsed, self.solarExported))    
+                                if self.timestampDetected:
+                                    ts = datetime.datetime.fromtimestamp(int(int(self.timestampUtc) / 1000)).strftime(
+                                        '%Y-%m-%d %H:%M:%S')
+                                    self.generalLogger.debug(
+                                        u"ELECTRICITY/SOLAR: DateTime=%s, Electricity=%s, Net=%s, Saved=%s, Solar=%s, Solar Used=%s, Solar Exported=%s" % (
+                                            ts, self.electricity, self.electricityNet, self.electricitySaved,
+                                            self.solar,
+                                            self.solarUsed, self.solarExported))
                                 else:
-                                    autolog(DETAIL, u"ELECTRICITY/SOLAR: DateTime=NOT DETECTED, Electricity=%s, Net=%s, Saved=%s, Solar=%s, Solar Used=%s, Solar Exported=%s" % (self.electricity, self.electricityNet, self.electricitySaved, self.solar, self.solarUsed, self.solarExported))    
+                                    self.generalLogger.debug(
+                                        u"ELECTRICITY/SOLAR: DateTime=NOT DETECTED, Electricity=%s, Net=%s, Saved=%s, Solar=%s, Solar Used=%s, Solar Exported=%s" % (
+                                            self.electricity, self.electricityNet, self.electricitySaved, self.solar,
+                                            self.solarUsed, self.solarExported))
 
-                            if self.timestampDetected == True:
-                                if pluginGlobal['config']['supportsElectricity'] == True:
+                            if self.timestampDetected:
+                                if self.globals['config']['supportsElectricity']:
                                     if self.timestampUtc > self.lastReadingElectricityUtc:
-                                        if self.electricityDetected == True:
+                                        if self.electricityDetected:
                                             self.electricityNumberOfValues += 1
                                             self.electricityTotal += self.electricity
                                             if self.electricity < self.electricityMinimum:
@@ -3024,15 +2708,16 @@ class Plugin(indigo.PluginBase):
                                             if self.electricity > self.electricityMaximum:
                                                 self.electricityMaximum = self.electricity
                                             self.electricityLast = self.electricity
-                                    elif self.timestampUtc ==  self.lastReadingElectricityUtc:
+                                    elif self.timestampUtc == self.lastReadingElectricityUtc:
                                         self.electricityPrevious = 0.0
-                                        if self.electricityDetected == True:
+                                        if self.electricityDetected:
                                             self.electricityPrevious = self.electricity * 12
 
-                                if pluginGlobal['config']['supportsElectricity'] == True and pluginGlobal['config']['supportsElectricityNet'] == True and pluginGlobal['config']['supportsSolar'] == True:
+                                if self.globals['config']['supportsElectricity'] and self.globals['config'][
+                                        'supportsElectricityNet'] and self.globals['config']['supportsSolar']:
                                     # Net makes no sense if electricity and solar not measured
                                     if self.timestampUtc > self.lastReadingElectricityNetUtc:
-                                        if self.electricityNetDetected == True:
+                                        if self.electricityNetDetected:
                                             self.electricityNetNumberOfValues += 1
                                             self.electricityNetTotal += self.electricityNet
                                             if self.electricityNet < self.electricityNetMinimum:
@@ -3040,17 +2725,22 @@ class Plugin(indigo.PluginBase):
                                             if self.electricityNet > self.electricityNetMaximum:
                                                 self.electricityNetMaximum = self.electricityNet
                                             self.electricityNetLast = self.electricityNet
-                                    elif self.timestampUtc ==  self.lastReadingElectricityNetUtc:
+                                    elif self.timestampUtc == self.lastReadingElectricityNetUtc:
                                         self.electricityNetPrevious = 0.0
-                                        if self.electricityNetDetected == True:
+                                        if self.electricityNetDetected:
                                             self.electricityNetPrevious = self.electricityNet * 12
 
-                                    autolog(DETAIL, u"handleSmappeeResponse [FF][ELECTRICITY NET] - LRUTC[%s]=[%s], TSUTC[%s]=[%s], Net[%s]=[%s]" % (type(self.lastReadingElectricityNetUtc), self.lastReadingElectricityNetUtc, type(self.timestampUtc), self.timestampUtc, type(self.electricityNet), self.electricityNet))
+                                    self.generalLogger.debug(
+                                        u"handleSmappeeResponse [FF][ELECTRICITY NET] - LRUTC[%s]=[%s], TSUTC[%s]=[%s], Net[%s]=[%s]" % (
+                                            type(self.lastReadingElectricityNetUtc), self.lastReadingElectricityNetUtc,
+                                            type(self.timestampUtc), self.timestampUtc, type(self.electricityNet),
+                                            self.electricityNet))
 
-                                if pluginGlobal['config']['supportsElectricity'] == True and pluginGlobal['config']['supportsElectricitySaved'] == True and pluginGlobal['config']['supportsSolar'] == True:
+                                if self.globals['config']['supportsElectricity'] and self.globals['config'][
+                                        'supportsElectricitySaved'] and self.globals['config']['supportsSolar']:
                                     # Saved makes no sense if electricity and solar not measured
                                     if self.timestampUtc > self.lastReadingElectricitySavedUtc:
-                                        if self.electricitySavedDetected == True:
+                                        if self.electricitySavedDetected:
                                             self.electricitySavedNumberOfValues += 1
                                             self.electricitySavedTotal += self.electricitySaved
                                             if self.electricitySaved < self.electricitySavedMinimum:
@@ -3058,16 +2748,21 @@ class Plugin(indigo.PluginBase):
                                             if self.electricitySaved > self.electricitySavedMaximum:
                                                 self.electricitySavedMaximum = self.electricitySaved
                                             self.electricitySavedLast = self.electricitySaved
-                                    elif self.timestampUtc ==  self.lastReadingElectricitySavedUtc:
+                                    elif self.timestampUtc == self.lastReadingElectricitySavedUtc:
                                         self.electricitySavedPrevious = 0.0
-                                        if self.electricitySavedDetected == True:
+                                        if self.electricitySavedDetected:
                                             self.electricitySavedPrevious = self.electricitySaved * 12
 
-                                    autolog(DETAIL, u"handleSmappeeResponse [FF][ELECTRICITY SAVED] - LRUTC[%s]=[%s], TSUTC[%s]=[%s], Saved[%s]=[%s]" % (type(self.lastReadingElectricitySavedUtc), self.lastReadingElectricitySavedUtc, type(self.timestampUtc), self.timestampUtc, type(self.electricitySaved), self.electricitySaved))
+                                    self.generalLogger.debug(
+                                        u"handleSmappeeResponse [FF][ELECTRICITY SAVED] - LRUTC[%s]=[%s], TSUTC[%s]=[%s], Saved[%s]=[%s]" % (
+                                            type(self.lastReadingElectricitySavedUtc),
+                                            self.lastReadingElectricitySavedUtc,
+                                            type(self.timestampUtc), self.timestampUtc, type(self.electricitySaved),
+                                            self.electricitySaved))
 
-                                if pluginGlobal['config']['supportsSolar'] == True:
+                                if self.globals['config']['supportsSolar']:
                                     if self.timestampUtc > self.lastReadingSolarUtc:
-                                        if self.solarDetected == True:
+                                        if self.solarDetected:
                                             self.solarNumberOfValues += 1
                                             self.solarTotal += self.solar
                                             if self.solar < self.solarMinimum:
@@ -3075,84 +2770,97 @@ class Plugin(indigo.PluginBase):
                                             if self.solar > self.solarMaximum:
                                                 self.solarMaximum = self.solar
                                             self.solarLast = self.solar
-                                    elif self.timestampUtc ==  self.lastReadingSolarUtc:
+                                    elif self.timestampUtc == self.lastReadingSolarUtc:
                                         self.solarPrevious = 0.0
-                                        if self.solarDetected == True:
+                                        if self.solarDetected:
                                             self.solarPrevious = self.solar * 12
-                                    # autolog(DETAIL, u"handleSmappeeResponse [FF][SOLAR] - LRUTC[%s]=[%s], TSUTC[%s]=[%s], S[%s]=[%s]" % (type(self.lastReadingSolarUtc), self.lastReadingSolarUtc, type(self.timestampUtc), self.timestampUtc, type(self.solar), self.solar))
+                                    # self.generalLogger.debug(u"handleSmappeeResponse [FF][SOLAR] - LRUTC[%s]=[%s], TSUTC[%s]=[%s], S[%s]=[%s]" % (type(self.lastReadingSolarUtc), self.lastReadingSolarUtc, type(self.timestampUtc), self.timestampUtc, type(self.solar), self.solar))
 
-                                if pluginGlobal['config']['supportsElectricity'] == True and pluginGlobal['config']['supportsSolarUsed'] == True:
+                                if self.globals['config']['supportsElectricity'] and self.globals['config'][
+                                        'supportsSolarUsed']:
                                     # Used (Solar) makes no sense if electricity and solar not measured
                                     if self.timestampUtc > self.lastReadingSolarUsedUtc:
-                                        if self.solarUsedDetected == True:
+                                        if self.solarUsedDetected:
                                             self.solarUsedNumberOfValues += 1
                                             self.solarUsedTotal += self.solarUsed
                                             self.solarUsedLast = self.solarUsed
-                                    elif self.timestampUtc ==  self.lastReadingSolarUsedUtc:
+                                    elif self.timestampUtc == self.lastReadingSolarUsedUtc:
                                         self.solarUsedPrevious = 0.0
-                                        if self.solarUsedDetected == True:
+                                        if self.solarUsedDetected:
                                             self.solarUsedPrevious = self.solarUsed * 12
 
-                                    autolog(DETAIL, u"handleSmappeeResponse [FF][SOLAR USED] - LRUTC[%s]=[%s], TSUTC[%s]=[%s], Saving[%s]=[%s]" % (type(self.lastReadingSolarUsedUtc), self.lastReadingSolarUsedUtc, type(self.timestampUtc), self.timestampUtc, type(self.solarUsed), self.solarUsed))
+                                    self.generalLogger.debug(
+                                        u"handleSmappeeResponse [FF][SOLAR USED] - LRUTC[%s]=[%s], TSUTC[%s]=[%s], Saving[%s]=[%s]" % (
+                                            type(self.lastReadingSolarUsedUtc), self.lastReadingSolarUsedUtc,
+                                            type(self.timestampUtc), self.timestampUtc, type(self.solarUsed),
+                                            self.solarUsed))
 
-                                if pluginGlobal['config']['supportsSolarExported'] == True:
+                                if self.globals['config']['supportsSolarExported']:
                                     if self.timestampUtc > self.lastReadingSolarExportedUtc:
-                                        if self.solarExportedDetected == True:
+                                        if self.solarExportedDetected:
                                             self.solarExportedNumberOfValues += 1
                                             self.solarExportedTotal += self.solarExported
                                             self.solarExportedLast = self.solarExported
-                                    elif self.timestampUtc ==  self.lastReadingSolarExportedUtc:
+                                    elif self.timestampUtc == self.lastReadingSolarExportedUtc:
                                         self.solarExportedPrevious = 0.0
-                                        if self.solarExportedDetected == True:
+                                        if self.solarExportedDetected:
                                             self.solarExportedPrevious = self.solarExported * 12
 
-                                    autolog(DETAIL, u"handleSmappeeResponse [FF][SOLAR EXPORTED] - LRUTC[%s]=[%s], TSUTC[%s]=[%s], Saving[%s]=[%s]" % (type(self.lastReadingSolarExportedUtc), self.lastReadingSolarExportedUtc, type(self.timestampUtc), self.timestampUtc, type(self.solarExported), self.solarExported))
+                                    self.generalLogger.debug(
+                                        u"handleSmappeeResponse [FF][SOLAR EXPORTED] - LRUTC[%s]=[%s], TSUTC[%s]=[%s], Saving[%s]=[%s]" % (
+                                            type(self.lastReadingSolarExportedUtc), self.lastReadingSolarExportedUtc,
+                                            type(self.timestampUtc), self.timestampUtc, type(self.solarExported),
+                                            self.solarExported))
 
-                                if pluginGlobal['SQL']['enabled'] == True:
+                                if self.globals['SQL']['enabled']:
 
                                     try:
                                         insertSql = 'NO SQL SET-UP YET'
                                         readingTime = str(int(self.timestampUtc / 1000))  # Remove micro seconds
-                                        readingYYYYMMDDHHMMSS = datetime.datetime.fromtimestamp(int(readingTime)).strftime('%Y-%m-%d %H:%M:%S')
+                                        readingYYYYMMDDHHMMSS = datetime.datetime.fromtimestamp(
+                                            int(readingTime)).strftime('%Y-%m-%d %H:%M:%S')
                                         readingYYYYMMDD = readingYYYYMMDDHHMMSS[0:10]
                                         readingHHMMSS = readingYYYYMMDDHHMMSS[-8:]
-                                        elec          = str(int(self.electricity * 10))
-                                        elecNet       = str(int(self.electricityNet * 10))
-                                        elecSaved     = str(int(self.electricitySaved * 10))
-                                        alwaysOn      = str(int(self.alwaysOn * 10))
-                                        solar         = str(int(self.solar * 10))
-                                        solarUsed     = str(int(self.solarUsed * 10))
+                                        elec = str(int(self.electricity * 10))
+                                        elecNet = str(int(self.electricityNet * 10))
+                                        elecSaved = str(int(self.electricitySaved * 10))
+                                        alwaysOn = str(int(self.alwaysOn * 10))
+                                        solar = str(int(self.solar * 10))
+                                        solarUsed = str(int(self.solarUsed * 10))
                                         solarExported = str(int(self.solarExported * 10))
                                         insertSql = """
                                             INSERT OR IGNORE INTO readings (reading_time, reading_YYYYMMDD, reading_HHMMSS, elec, elec_net, elec_saved, always_on, solar, solar_used, solar_exported)
                                             VALUES (%s, '%s', '%s', %s, %s, %s, %s, %s, %s, %s);
-                                            """ % (readingTime, readingYYYYMMDD, readingHHMMSS, elec, elecNet, elecSaved, alwaysOn, solar, solarUsed, solarExported)
-                                        pluginGlobal['SQL']['cursor'].executescript(insertSql)
+                                            """ % (
+                                            readingTime, readingYYYYMMDD, readingHHMMSS, elec, elecNet, elecSaved,
+                                            alwaysOn,
+                                            solar, solarUsed, solarExported)
+                                        self.globals['SQL']['cursor'].executescript(insertSql)
                                     except sql3.Error, e:
-                                        if pluginGlobal['SQL']['connection']:
-                                            pluginGlobal['SQL']['connection'].rollback()
-                                        autolog(ERROR, u"SMAPPEE ERROR DETECTED WITH SQL INSERT: %s, SQL=[%s]" % (e.args[0], insertSql))
-                                        if pluginGlobal['SQL']['connection']:
-                                            pluginGlobal['SQL']['connection'].close()  
+                                        if self.globals['SQL']['connection']:
+                                            self.globals['SQL']['connection'].rollback()
+                                        self.generalLogger.error(
+                                            u"SMAPPEE ERROR DETECTED WITH SQL INSERT: %s, SQL=[%s]" % (
+                                                e.args[0], insertSql))
+                                        if self.globals['SQL']['connection']:
+                                            self.globals['SQL']['connection'].close()
 
-                                        pluginGlobal['SQL']['enabled'] = False  # Disable SQL processing
+                                        self.globals['SQL']['enabled'] = False  # Disable SQL processing
 
-
-                        if pluginGlobal['SQL']['enabled'] == True:
+                        if self.globals['SQL']['enabled']:
                             try:
-                                pluginGlobal['SQL']['connection'].commit()
+                                self.globals['SQL']['connection'].commit()
                             except sql3.Error, e:
-                                if pluginGlobal['SQL']['connection']:
-                                    pluginGlobal['SQL']['connection'].rollback()
-                                autolog(ERROR, u"SMAPPEE ERROR DETECTED WITH SQL COMMIT: %s" % (e.args[0]))
+                                if self.globals['SQL']['connection']:
+                                    self.globals['SQL']['connection'].rollback()
+                                self.generalLogger.error(u"SMAPPEE ERROR DETECTED WITH SQL COMMIT: %s" % (e.args[0]))
 
-                                pluginGlobal['SQL']['enabled'] = False  # Disable SQL processing
+                                self.globals['SQL']['enabled'] = False  # Disable SQL processing
                             finally:
-                                if pluginGlobal['SQL']['connection']:
-                                    pluginGlobal['SQL']['connection'].close()  
+                                if self.globals['SQL']['connection']:
+                                    self.globals['SQL']['connection'].close()
 
-
-                        # reading entries processing complete 
+                                    # reading entries processing complete
 
                         if self.electricityNumberOfValues > 0:
                             self.electricityMeanAverage = self.electricityTotal / self.electricityNumberOfValues
@@ -3172,43 +2880,67 @@ class Plugin(indigo.PluginBase):
                         if self.solarNumberOfValues > 0:
                             self.solarExportedMeanAverage = self.solarExportedTotal / self.solarNumberOfValues
 
-                        autolog(DETAIL, u"READINGS - ELECTRICITY: N=[%s], T=[%s], MEAN=[%s], MIN=[%s], MAX=[%s], L=[%s]" \
-                            % (self.electricityNumberOfValues, self.electricityTotal, self.electricityMeanAverage, self.electricityMinimum, self.electricityMaximum, self.electricityLast))
-                        autolog(DETAIL, u"READINGS - ELECTRICITY NET: N=[%s], T=[%s], MEAN=[%s], MIN=[%s], MAX=[%s], L=[%s]" \
-                            % (self.electricityNetNumberOfValues, self.electricityNetTotal, self.electricityNetMeanAverage, self.electricityNetMinimum, self.electricityNetMaximum, self.electricityNetLast))
-                        autolog(DETAIL, u"READINGS - ELECTRICITY SAVED: N=[%s], T=[%s], MEAN=[%s], MIN=[%s], MAX=[%s], L=[%s]" \
-                            % (self.electricitySavedNumberOfValues, self.electricitySavedTotal, self.electricitySavedMeanAverage, self.electricitySavedMinimum, self.electricitySavedMaximum, self.electricitySavedLast))
-                        autolog(DETAIL, u"READINGS - SOLAR: N=[%s], T=[%s], MEAN=[%s], MIN=[%s], MAX=[%s], L=[%s]" \
-                            % (self.solarNumberOfValues, self.solarTotal, self.solarMeanAverage, self.solarMinimum, self.solarMaximum, self.solarLast))
-                        autolog(DETAIL, u"READINGS - SOLAR USED: N=[%s], T=[%s], MEAN=[%s], MIN=[%s], MAX=[%s], L=[%s]" \
-                            % (self.solarUsedNumberOfValues, self.solarUsedTotal, self.solarUsedMeanAverage, self.solarUsedMinimum, self.solarUsedMaximum, self.solarUsedLast))
-                        autolog(DETAIL, u"READINGS - SOLAR EXPORTED: N=[%s], T=[%s], MEAN=[%s], MIN=[%s], MAX=[%s], L=[%s]" \
-                            % (self.solarExportedNumberOfValues, self.solarExportedTotal, self.solarExportedMeanAverage, self.solarExportedMinimum, self.solarExportedMaximum, self.solarExportedLast))
+                        self.generalLogger.debug(
+                            u"READINGS - ELECTRICITY: N=[%s], T=[%s], MEAN=[%s], MIN=[%s], MAX=[%s], L=[%s]"
+                            % (self.electricityNumberOfValues, self.electricityTotal, self.electricityMeanAverage,
+                               self.electricityMinimum, self.electricityMaximum, self.electricityLast))
+                        self.generalLogger.debug(
+                            u"READINGS - ELECTRICITY NET: N=[%s], T=[%s], MEAN=[%s], MIN=[%s], MAX=[%s], L=[%s]"
+                            % (
+                                self.electricityNetNumberOfValues, self.electricityNetTotal,
+                                self.electricityNetMeanAverage,
+                                self.electricityNetMinimum, self.electricityNetMaximum, self.electricityNetLast))
+                        self.generalLogger.debug(
+                            u"READINGS - ELECTRICITY SAVED: N=[%s], T=[%s], MEAN=[%s], MIN=[%s], MAX=[%s], L=[%s]"
+                            % (self.electricitySavedNumberOfValues, self.electricitySavedTotal,
+                               self.electricitySavedMeanAverage, self.electricitySavedMinimum,
+                               self.electricitySavedMaximum, self.electricitySavedLast))
+                        self.generalLogger.debug(
+                            u"READINGS - SOLAR: N=[%s], T=[%s], MEAN=[%s], MIN=[%s], MAX=[%s], L=[%s]"
+                            % (self.solarNumberOfValues, self.solarTotal, self.solarMeanAverage, self.solarMinimum,
+                               self.solarMaximum, self.solarLast))
+                        self.generalLogger.debug(
+                            u"READINGS - SOLAR USED: N=[%s], T=[%s], MEAN=[%s], MIN=[%s], MAX=[%s], L=[%s]"
+                            % (self.solarUsedNumberOfValues, self.solarUsedTotal, self.solarUsedMeanAverage,
+                               self.solarUsedMinimum, self.solarUsedMaximum, self.solarUsedLast))
+                        self.generalLogger.debug(
+                            u"READINGS - SOLAR EXPORTED: N=[%s], T=[%s], MEAN=[%s], MIN=[%s], MAX=[%s], L=[%s]"
+                            % (self.solarExportedNumberOfValues, self.solarExportedTotal, self.solarExportedMeanAverage,
+                               self.solarExportedMinimum, self.solarExportedMaximum, self.solarExportedLast))
 
                         savedElectricityCalculated = False  # Used to determine whether Solar PV FIT + Elec savings can be calculated
-                                                            #   Gets set to True if Elec saving calculated so that it can be added to Solar Total Income
-                                                            #   to dereive and upadte state: dailyTotalPlusSavedElecIncome
+                        #   Gets set to True if Elec saving calculated so that it can be added to Solar Total Income
+                        #   to dereive and upadte state: dailyTotalPlusSavedElecIncome
 
-                        if pluginGlobal['config']['supportsElectricity'] == True:
+                        if self.globals['config']['supportsElectricity']:
 
                             if "curEnergyLevel" in devElectricity.states:
                                 if commandSentToSmappee == 'RESET_CONSUMPTION':
 
-                                    pluginGlobal['smappees'][devElectricity.id]['curEnergyLevel'] = 0.0
-                                    pluginGlobal['smappees'][devElectricity.id]['accumEnergyTotal'] = 0.0
-                                    wattStr = "%3.0f Watts" % (pluginGlobal['smappees'][devElectricity.id]['curEnergyLevel'])
-                                    devElectricity.updateStateOnServer("curEnergyLevel", pluginGlobal['smappees'][devElectricity.id]['curEnergyLevel'], uiValue=wattStr)
+                                    self.globals['smappees'][devElectricity.id]['curEnergyLevel'] = 0.0
+                                    self.globals['smappees'][devElectricity.id]['accumEnergyTotal'] = 0.0
+                                    wattStr = "%3.0f Watts" % (
+                                        self.globals['smappees'][devElectricity.id]['curEnergyLevel'])
+                                    devElectricity.updateStateOnServer("curEnergyLevel",
+                                                                       self.globals['smappees'][devElectricity.id][
+                                                                           'curEnergyLevel'], uiValue=wattStr)
                                     if float(indigo.server.apiVersion) >= 1.18:
                                         devElectricity.updateStateImageOnServer(indigo.kStateImageSel.EnergyMeterOff)
 
-                                self.options = devElectricity.pluginProps['optionsEnergyMeterCurPower']  # mean, minimum, maximum, last
+                                self.options = devElectricity.pluginProps[
+                                    'optionsEnergyMeterCurPower']  # mean, minimum, maximum, last
 
                                 if self.options == 'mean':  # mean, minimum, maximum, last
                                     if self.electricityNumberOfValues > 0:
                                         watts = (self.electricityMeanAverage * 60) / 5
                                     else:
-                                        autolog(DETAIL, u"ELECTRICITY: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.electricityLast, self.timestampUtcLast, self.lastReadingElectricityUtc, (self.lastReadingElectricityUtc - 600000)))
-                                        if self.electricityLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingElectricityUtc - 600000):
+                                        self.generalLogger.debug(
+                                            u"ELECTRICITY: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                                self.electricityLast, self.timestampUtcLast,
+                                                self.lastReadingElectricityUtc,
+                                                (self.lastReadingElectricityUtc - 600000)))
+                                        if self.electricityLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                                self.lastReadingElectricityUtc - 600000):
                                             watts = self.electricityLast * 12
                                         else:
                                             watts = 0.0
@@ -3216,8 +2948,13 @@ class Plugin(indigo.PluginBase):
                                     if self.electricityNumberOfValues > 0:
                                         watts = self.electricityMinimum * 12
                                     else:
-                                        autolog(DETAIL, u"ELECTRICITY: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.electricityLast, self.timestampUtcLast, self.lastReadingElectricityUtc, (self.lastReadingElectricityUtc - 600000)))
-                                        if self.electricityLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingElectricityUtc - 600000):
+                                        self.generalLogger.debug(
+                                            u"ELECTRICITY: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                                self.electricityLast, self.timestampUtcLast,
+                                                self.lastReadingElectricityUtc,
+                                                (self.lastReadingElectricityUtc - 600000)))
+                                        if self.electricityLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                                self.lastReadingElectricityUtc - 600000):
                                             watts = self.electricityLast * 12
                                         else:
                                             watts = 0.0
@@ -3225,24 +2962,34 @@ class Plugin(indigo.PluginBase):
                                     if self.electricityNumberOfValues > 0:
                                         watts = self.electricityMaximum * 12
                                     else:
-                                        autolog(DETAIL, u"ELECTRICITY: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.electricityLast, self.timestampUtcLast, self.lastReadingElectricityUtc, (self.lastReadingElectricityUtc - 600000)))
-                                        if self.electricityLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingElectricityUtc - 600000):
+                                        self.generalLogger.debug(
+                                            u"ELECTRICITY: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                                self.electricityLast, self.timestampUtcLast,
+                                                self.lastReadingElectricityUtc,
+                                                (self.lastReadingElectricityUtc - 600000)))
+                                        if self.electricityLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                                self.lastReadingElectricityUtc - 600000):
                                             watts = self.electricityLast * 12
                                         else:
                                             watts = 0.0
                                 else:  # Assume last
-                                    autolog(DETAIL, u"ELECTRICITY: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.electricityLast, self.timestampUtcLast, self.lastReadingElectricityUtc, (self.lastReadingElectricityUtc - 600000)))
-                                    if self.electricityLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingElectricityUtc - 600000):
+                                    self.generalLogger.debug(
+                                        u"ELECTRICITY: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                            self.electricityLast, self.timestampUtcLast, self.lastReadingElectricityUtc,
+                                            (self.lastReadingElectricityUtc - 600000)))
+                                    if self.electricityLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                            self.lastReadingElectricityUtc - 600000):
                                         watts = self.electricityLast * 12
                                     else:
                                         watts = 0.0
 
                                 if watts == 0.0:
-                                    watts = self.electricityPrevious     
+                                    watts = self.electricityPrevious
 
-                                wattsStr = "%d Watts" % (watts)
-                                if not pluginGlobal['smappees'][devElectricity.id]['hideEnergyMeterCurPower']:
-                                    autolog(INFO, u"received '%s' power load reading: %s" % (devElectricity.name, wattsStr))
+                                wattsStr = "%d Watts" % watts
+                                if not self.globals['smappees'][devElectricity.id]['hideEnergyMeterCurPower']:
+                                    self.generalLogger.info(
+                                        u"received '%s' power load reading: %s" % (devElectricity.name, wattsStr))
 
                                 devElectricity.updateStateOnServer("curEnergyLevel", watts, uiValue=wattsStr)
                                 if float(indigo.server.apiVersion) >= 1.18:
@@ -3251,50 +2998,61 @@ class Plugin(indigo.PluginBase):
                             if "accumEnergyTotal" in devElectricity.states:
 
                                 if commandSentToSmappee == 'RESET_CONSUMPTION':
-                                    pluginGlobal['smappees'][devElectricity.id]['accumEnergyTotal'] = 0.0
-                                    wattStr = "%3.0f Watts" % (pluginGlobal['smappees'][devElectricity.id]['accumEnergyTotal'])
-                                    devElectricity.updateStateOnServer("accumEnergyTotal", pluginGlobal['smappees'][devElectricity.id]['accumEnergyTotal'], uiValue=wattStr)
+                                    self.globals['smappees'][devElectricity.id]['accumEnergyTotal'] = 0.0
+                                    wattStr = "%3.0f Watts" % (
+                                        self.globals['smappees'][devElectricity.id]['accumEnergyTotal'])
+                                    devElectricity.updateStateOnServer("accumEnergyTotal",
+                                                                       self.globals['smappees'][devElectricity.id][
+                                                                           'accumEnergyTotal'], uiValue=wattStr)
 
                                 kwh = float(devElectricity.states.get("accumEnergyTotal", 0))
                                 kwh += float(self.electricityTotal / 1000.0)
-                                kwhStr = "%0.3f kWh" % (kwh)
-                                kwhUnitCost = pluginGlobal['smappees'][devElectricity.id]['kwhUnitCost']
-                                dailyStandingCharge = pluginGlobal['smappees'][devElectricity.id]['dailyStandingCharge']
+                                kwhStr = "%0.3f kWh" % kwh
+                                kwhUnitCost = self.globals['smappees'][devElectricity.id]['kwhUnitCost']
+                                dailyStandingCharge = self.globals['smappees'][devElectricity.id]['dailyStandingCharge']
 
                                 amountGross = 0.00
                                 if kwhUnitCost > 0.00:
                                     amountGross = (dailyStandingCharge + (kwh * kwhUnitCost))
-                                    amountGrossReformatted = float(str("%0.2f" % (amountGross)))
-                                    amountGrossStr = str("%0.2f %s" % (amountGross, pluginGlobal['smappees'][devElectricity.id]['currencyCode']))
-                                    devElectricity.updateStateOnServer("dailyTotalCost", amountGrossReformatted, uiValue=amountGrossStr)
+                                    amountGrossReformatted = float(str("%0.2f" % amountGross))
+                                    amountGrossStr = str("%0.2f %s" % (
+                                        amountGross, self.globals['smappees'][devElectricity.id]['currencyCode']))
+                                    devElectricity.updateStateOnServer("dailyTotalCost", amountGrossReformatted,
+                                                                       uiValue=amountGrossStr)
 
-                                if not pluginGlobal['smappees'][devElectricity.id]['hideEnergyMeterAccumPower']:
-                                    if kwhUnitCost == 0.00 or pluginGlobal['smappees'][devElectricity.id]['hideEnergyMeterAccumPowerCost'] == True:
-                                        autolog(INFO, u"received '%s' energy total: %s" % (devElectricity.name, kwhStr))
+                                if not self.globals['smappees'][devElectricity.id]['hideEnergyMeterAccumPower']:
+                                    if kwhUnitCost == 0.00 or self.globals['smappees'][devElectricity.id][
+                                            'hideEnergyMeterAccumPowerCost']:
+                                        self.generalLogger.info(
+                                            u"received '%s' energy total: %s" % (devElectricity.name, kwhStr))
                                     else:
-                                        autolog(INFO, u"received '%s' energy total: %s (Gross %s)" % (devElectricity.name, kwhStr, amountGrossStr))
+                                        self.generalLogger.info(u"received '%s' energy total: %s (Gross %s)" % (
+                                            devElectricity.name, kwhStr, amountGrossStr))
 
-                                kwhReformatted = float(str("%0.3f" % (kwh)))
+                                kwhReformatted = float(str("%0.3f" % kwh))
                                 devElectricity.updateStateOnServer("accumEnergyTotal", kwhReformatted, uiValue=kwhStr)
 
                             if "alwaysOn" in devElectricity.states:
                                 wattsAlwaysOn = self.alwaysOn
-                                wattsAlwaysOnStr = "%d Watts" % (wattsAlwaysOn)
-                                if not pluginGlobal['smappees'][devElectricity.id]['hideAlwaysOnPower']:
-                                    autolog(INFO, u"received '%s' always-on reading: %s" % (devElectricity.name, wattsAlwaysOnStr))
+                                wattsAlwaysOnStr = "%d Watts" % wattsAlwaysOn
+                                if not self.globals['smappees'][devElectricity.id]['hideAlwaysOnPower']:
+                                    self.generalLogger.info(u"received '%s' always-on reading: %s" % (
+                                        devElectricity.name, wattsAlwaysOnStr))
                                 devElectricity.updateStateOnServer("alwaysOn", watts, uiValue=wattsAlwaysOnStr)
 
-                            pluginGlobal['smappees'][devElectricity.id]['lastReadingElectricityUtc'] = self.timestampUtc
+                            self.globals['smappees'][devElectricity.id]['lastReadingElectricityUtc'] = self.timestampUtc
 
-                        if pluginGlobal['config']['supportsElectricityNet'] == True:
+                        if self.globals['config']['supportsElectricityNet']:
 
                             if "curEnergyLevel" in devElectricityNet.states:
                                 if commandSentToSmappee == 'RESET_CONSUMPTION':
 
-                                    pluginGlobal['smappees'][devElectricityNet.id]['curEnergyLevel'] = 0.0
-                                    pluginGlobal['smappees'][devElectricityNet.id]['accumEnergyTotal'] = 0.0
-                                    wattStr = "%3.0f Watts" % (pluginGlobal['smappees'][devElectricityNet.id]['curEnergyLevel'])
-                                    devElectricityNet.updateStateOnServer("curEnergyLevel", pluginGlobal['smappees'][devElectricityNet.id]['curEnergyLevel'], uiValue=wattStr)
+                                    self.globals['smappees'][devElectricityNet.id]['curEnergyLevel'] = 0.0
+                                    self.globals['smappees'][devElectricityNet.id]['accumEnergyTotal'] = 0.0
+                                    wattStr = "%3.0f Watts" % (
+                                        self.globals['smappees'][devElectricityNet.id]['curEnergyLevel'])
+                                    devElectricityNet.updateStateOnServer("curEnergyLevel", self.globals['smappees'][
+                                        devElectricityNet.id]['curEnergyLevel'], uiValue=wattStr)
                                     if float(indigo.server.apiVersion) >= 1.18:
                                         devElectricityNet.updateStateImageOnServer(indigo.kStateImageSel.EnergyMeterOff)
 
@@ -3304,8 +3062,13 @@ class Plugin(indigo.PluginBase):
                                     if self.electricityNetNumberOfValues > 0:
                                         wattsNet = (self.electricityNetMeanAverage * 60) / 5
                                     else:
-                                        autolog(DETAIL, u"ELECTRICITY NET: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.electricityNetLast, self.timestampUtcLast, self.lastReadingElectricityNetUtc, (self.lastReadingElectricityNetUtc - 600000)))
-                                        if self.electricityNetLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingElectricityNetUtc - 600000):
+                                        self.generalLogger.debug(
+                                            u"ELECTRICITY NET: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                                self.electricityNetLast, self.timestampUtcLast,
+                                                self.lastReadingElectricityNetUtc,
+                                                (self.lastReadingElectricityNetUtc - 600000)))
+                                        if self.electricityNetLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                                self.lastReadingElectricityNetUtc - 600000):
                                             wattsNet = self.electricityNetLast * 12
                                         else:
                                             wattsNet = 0.0
@@ -3313,8 +3076,13 @@ class Plugin(indigo.PluginBase):
                                     if self.electricityNetNumberOfValues > 0:
                                         wattsNet = self.electricityNetMinimum * 12
                                     else:
-                                        autolog(DETAIL, u"ELECTRICITY NET: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.electricityNetLast, self.timestampUtcLast, self.lastReadingElectricityNetUtc, (self.lastReadingElectricityNetUtc - 600000)))
-                                        if self.electricityNetLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingElectricityNetUtc - 600000):
+                                        self.generalLogger.debug(
+                                            u"ELECTRICITY NET: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                                self.electricityNetLast, self.timestampUtcLast,
+                                                self.lastReadingElectricityNetUtc,
+                                                (self.lastReadingElectricityNetUtc - 600000)))
+                                        if self.electricityNetLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                                self.lastReadingElectricityNetUtc - 600000):
                                             wattsNet = self.electricityNetLast * 12
                                         else:
                                             wattsNet = 0.0
@@ -3322,14 +3090,24 @@ class Plugin(indigo.PluginBase):
                                     if self.electricityNetNumberOfValues > 0:
                                         wattsNet = self.electricityNetMaximum * 12
                                     else:
-                                        autolog(DETAIL, u"ELECTRICITY NET: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.electricityNetLast, self.timestampUtcLast, self.lastReadingElectricityNetUtc, (self.lastReadingElectricityNetUtc - 600000)))
-                                        if self.electricityNetLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingElectricityNetUtc - 600000):
+                                        self.generalLogger.debug(
+                                            u"ELECTRICITY NET: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                                self.electricityNetLast, self.timestampUtcLast,
+                                                self.lastReadingElectricityNetUtc,
+                                                (self.lastReadingElectricityNetUtc - 600000)))
+                                        if self.electricityNetLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                                self.lastReadingElectricityNetUtc - 600000):
                                             wattsNet = self.electricityNetLast * 12
                                         else:
                                             wattsNet = 0.0
                                 else:  # Assume last
-                                    autolog(DETAIL, u"ELECTRICITY NET: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.electricityNetLast, self.timestampUtcLast, self.lastReadingElectricityNetUtc, (self.lastReadingElectricityNetUtc - 600000)))
-                                    if self.electricityNetLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingElectricityNetUtc - 600000):
+                                    self.generalLogger.debug(
+                                        u"ELECTRICITY NET: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                            self.electricityNetLast, self.timestampUtcLast,
+                                            self.lastReadingElectricityNetUtc,
+                                            (self.lastReadingElectricityNetUtc - 600000)))
+                                    if self.electricityNetLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                            self.lastReadingElectricityNetUtc - 600000):
                                         wattsNet = self.electricityNetLast * 12
                                     else:
                                         wattsNet = 0.0
@@ -3337,12 +3115,14 @@ class Plugin(indigo.PluginBase):
                                 if wattsNet == 0.0:
                                     wattsNet = self.electricityNetPrevious
 
-                                wattsNetStr = "%d Watts" % (wattsNet)
-                                if not pluginGlobal['smappees'][devElectricityNet.id]['hideEnergyMeterCurNetPower']:
-                                    if wattsNet == 0.0 and pluginGlobal['smappees'][devElectricityNet.id]['hideEnergyMeterCurZeroNetPower']:
+                                wattsNetStr = "%d Watts" % wattsNet
+                                if not self.globals['smappees'][devElectricityNet.id]['hideEnergyMeterCurNetPower']:
+                                    if wattsNet == 0.0 and self.globals['smappees'][devElectricityNet.id][
+                                            'hideEnergyMeterCurZeroNetPower']:
                                         pass
                                     else:
-                                        autolog(INFO, u"received '%s' electricity net reading: %s" % (devElectricityNet.name, wattsNetStr))
+                                        self.generalLogger.info(u"received '%s' electricity net reading: %s" % (
+                                            devElectricityNet.name, wattsNetStr))
                                 devElectricityNet.updateStateOnServer("curEnergyLevel", wattsNet, uiValue=wattsNetStr)
                                 if float(indigo.server.apiVersion) >= 1.18:
                                     devElectricityNet.updateStateImageOnServer(indigo.kStateImageSel.EnergyMeterOn)
@@ -3352,59 +3132,76 @@ class Plugin(indigo.PluginBase):
                                 else:
                                     netPercentage = int(0)
                                 netPercentageStr = "%d%%" % netPercentage
-                                devElectricityNet.updateStateOnServer("kwhCurrentNetPercentage", netPercentage, uiValue=netPercentageStr)
+                                devElectricityNet.updateStateOnServer("kwhCurrentNetPercentage", netPercentage,
+                                                                      uiValue=netPercentageStr)
 
                             if "accumEnergyTotal" in devElectricityNet.states:
                                 if commandSentToSmappee == 'RESET_CONSUMPTION':
-                                    pluginGlobal['smappees'][devElectricityNet.id]['accumEnergyTotal'] = 0.0
-                                    wattNetStr = "%3.0f Watts" % (pluginGlobal['smappees'][devElectricityNet.id]['accumEnergyTotal'])
-                                    devElectricityNet.updateStateOnServer("accumEnergyTotal", pluginGlobal['smappees'][devElectricityNet.id]['accumEnergyTotal'], uiValue=wattNetStr)
+                                    self.globals['smappees'][devElectricityNet.id]['accumEnergyTotal'] = 0.0
+                                    wattNetStr = "%3.0f Watts" % (
+                                        self.globals['smappees'][devElectricityNet.id]['accumEnergyTotal'])
+                                    devElectricityNet.updateStateOnServer("accumEnergyTotal", self.globals['smappees'][
+                                        devElectricityNet.id]['accumEnergyTotal'], uiValue=wattNetStr)
 
                                 if "accumEnergyTotal" in devElectricity.states:
                                     # Need to check this as the kwh, gross amount, unit cost and currency code is retrieved from the Electricity Device
- 
+
                                     kwhNet = float(devElectricityNet.states.get("accumEnergyTotal", 0))
                                     kwhNet += float(self.electricityNetTotal / 1000.0)
-                                    kwhNetStr = str("%0.3f kWh" % (kwhNet))
-                                    kwhUnitCost = pluginGlobal['smappees'][devElectricity.id]['kwhUnitCost']
-                                    dailyStandingCharge = pluginGlobal['smappees'][devElectricity.id]['dailyStandingCharge']
+                                    kwhNetStr = str("%0.3f kWh" % kwhNet)
+                                    kwhUnitCost = self.globals['smappees'][devElectricity.id]['kwhUnitCost']
+                                    dailyStandingCharge = self.globals['smappees'][devElectricity.id][
+                                        'dailyStandingCharge']
 
-                                    kwhNetReformatted = float("%0.3f" % (kwhNet))
-                                    devElectricityNet.updateStateOnServer("accumEnergyTotal", kwhNetReformatted, uiValue=kwhNetStr)
+                                    kwhNetReformatted = float("%0.3f" % kwhNet)
+                                    devElectricityNet.updateStateOnServer("accumEnergyTotal", kwhNetReformatted,
+                                                                          uiValue=kwhNetStr)
 
                                     amountNet = 0.00
                                     if kwhUnitCost > 0.00:
                                         amountNet = dailyStandingCharge + (kwhNet * kwhUnitCost)
-                                        amountNetReformatted = float(str("%0.2f" % (amountNet)))
-                                        amountNetStr = str("%0.2f %s" % (amountNet, pluginGlobal['smappees'][devElectricity.id]['currencyCode']))
-                                        devElectricityNet.updateStateOnServer("dailyNetTotalCost", amountNetReformatted, uiValue=amountNetStr)
+                                        amountNetReformatted = float(str("%0.2f" % amountNet))
+                                        amountNetStr = str("%0.2f %s" % (
+                                            amountNet, self.globals['smappees'][devElectricity.id]['currencyCode']))
+                                        devElectricityNet.updateStateOnServer("dailyNetTotalCost", amountNetReformatted,
+                                                                              uiValue=amountNetStr)
 
-                                    if not pluginGlobal['smappees'][devElectricityNet.id]['hideEnergyMeterAccumNetPower']:
-                                        if kwhUnitCost == 0.00 or pluginGlobal['smappees'][devElectricityNet.id]['hideEnergyMeterAccumNetPowerCost'] == True:
-                                            autolog(INFO, u"received '%s' net energy total: %s" % (devElectricityNet.name, kwhNetStr))
+                                    if not self.globals['smappees'][devElectricityNet.id][
+                                            'hideEnergyMeterAccumNetPower']:
+                                        if kwhUnitCost == 0.00 or self.globals['smappees'][devElectricityNet.id][
+                                                'hideEnergyMeterAccumNetPowerCost']:
+                                            self.generalLogger.info(u"received '%s' net energy total: %s" % (
+                                                devElectricityNet.name, kwhNetStr))
                                         else:
-                                            autolog(INFO, u"received '%s' net energy total: %s (Gross %s)" % (devElectricityNet.name, kwhNetStr, amountNetStr))
+                                            self.generalLogger.info(u"received '%s' net energy total: %s (Gross %s)" % (
+                                                devElectricityNet.name, kwhNetStr, amountNetStr))
 
                                     if kwhNet > 0.00:
                                         netDailyPercentage = int(round((kwhNet / kwh) * 100))
                                     else:
                                         netDailyPercentage = int(0)
                                     netDailyPercentageStr = "%d%%" % netDailyPercentage
-                                    devElectricityNet.updateStateOnServer("kwhDailyTotalNetPercentage", netDailyPercentage, uiValue=netDailyPercentageStr)
+                                    devElectricityNet.updateStateOnServer("kwhDailyTotalNetPercentage",
+                                                                          netDailyPercentage,
+                                                                          uiValue=netDailyPercentageStr)
 
-                            pluginGlobal['smappees'][devElectricityNet.id]['lastReadingElectricityNetUtc'] = self.timestampUtc
+                            self.globals['smappees'][devElectricityNet.id][
+                                'lastReadingElectricityNetUtc'] = self.timestampUtc
 
-                        if pluginGlobal['config']['supportsElectricitySaved'] == True:
+                        if self.globals['config']['supportsElectricitySaved']:
 
                             if "curEnergyLevel" in devElectricitySaved.states:
                                 if commandSentToSmappee == 'RESET_CONSUMPTION':
 
-                                    pluginGlobal['smappees'][devElectricitySaved.id]['curEnergyLevel'] = 0.0
-                                    pluginGlobal['smappees'][devElectricitySaved.id]['accumEnergyTotal'] = 0.0
-                                    wattStr = "%3.0f Watts" % (pluginGlobal['smappees'][devElectricitySaved.id]['curEnergyLevel'])
-                                    devElectricitySaved.updateStateOnServer("curEnergyLevel", pluginGlobal['smappees'][devElectricitySaved.id]['curEnergyLevel'], uiValue=wattStr)
+                                    self.globals['smappees'][devElectricitySaved.id]['curEnergyLevel'] = 0.0
+                                    self.globals['smappees'][devElectricitySaved.id]['accumEnergyTotal'] = 0.0
+                                    wattStr = "%3.0f Watts" % (
+                                        self.globals['smappees'][devElectricitySaved.id]['curEnergyLevel'])
+                                    devElectricitySaved.updateStateOnServer("curEnergyLevel", self.globals['smappees'][
+                                        devElectricitySaved.id]['curEnergyLevel'], uiValue=wattStr)
                                     if float(indigo.server.apiVersion) >= 1.18:
-                                        devElectricitySaved.updateStateImageOnServer(indigo.kStateImageSel.EnergyMeterOff)
+                                        devElectricitySaved.updateStateImageOnServer(
+                                            indigo.kStateImageSel.EnergyMeterOff)
 
                                 self.options = devElectricitySaved.pluginProps['optionsEnergyMeterCurPower']
 
@@ -3412,8 +3209,13 @@ class Plugin(indigo.PluginBase):
                                     if self.electricitySavedNumberOfValues > 0:
                                         wattsSaved = (self.electricitySavedMeanAverage * 60) / 5
                                     else:
-                                        autolog(DETAIL, u"ELECTRICITY SAVED: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.electricitySavedLast, self.timestampUtcLast, self.lastReadingElectricitySavedUtc, (self.lastReadingElectricitySavedUtc - 600000)))
-                                        if self.electricitySavedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingElectricitySavedUtc - 600000):
+                                        self.generalLogger.debug(
+                                            u"ELECTRICITY SAVED: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                                self.electricitySavedLast, self.timestampUtcLast,
+                                                self.lastReadingElectricitySavedUtc,
+                                                (self.lastReadingElectricitySavedUtc - 600000)))
+                                        if self.electricitySavedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                                self.lastReadingElectricitySavedUtc - 600000):
                                             wattsSaved = self.electricitySavedLast * 12
                                         else:
                                             wattsSaved = 0.0
@@ -3421,8 +3223,13 @@ class Plugin(indigo.PluginBase):
                                     if self.electricitySavedNumberOfValues > 0:
                                         wattsSaved = self.electricitySavedMinimum * 12
                                     else:
-                                        autolog(DETAIL, u"ELECTRICITY SAVED: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.electricitySavedLast, self.timestampUtcLast, self.lastReadingElectricitySavedUtc, (self.lastReadingElectricitySavedUtc - 600000)))
-                                        if self.electricitySavedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingElectricitySavedUtc - 600000):
+                                        self.generalLogger.debug(
+                                            u"ELECTRICITY SAVED: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                                self.electricitySavedLast, self.timestampUtcLast,
+                                                self.lastReadingElectricitySavedUtc,
+                                                (self.lastReadingElectricitySavedUtc - 600000)))
+                                        if self.electricitySavedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                                self.lastReadingElectricitySavedUtc - 600000):
                                             wattsSaved = self.electricitySavedLast * 12
                                         else:
                                             wattsSaved = 0.0
@@ -3430,14 +3237,24 @@ class Plugin(indigo.PluginBase):
                                     if self.electricitySavedNumberOfValues > 0:
                                         wattsSaved = self.electricitySavedMaximum * 12
                                     else:
-                                        autolog(DETAIL, u"ELECTRICITY SAVED: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.electricitySavedLast, self.timestampUtcLast, self.lastReadingElectricitySavedUtc, (self.lastReadingElectricitySavedUtc - 600000)))
-                                        if self.electricitySavedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingElectricitySavedUtc - 600000):
+                                        self.generalLogger.debug(
+                                            u"ELECTRICITY SAVED: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                                self.electricitySavedLast, self.timestampUtcLast,
+                                                self.lastReadingElectricitySavedUtc,
+                                                (self.lastReadingElectricitySavedUtc - 600000)))
+                                        if self.electricitySavedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                                self.lastReadingElectricitySavedUtc - 600000):
                                             wattsSaved = self.electricitySavedLast * 12
                                         else:
                                             wattsSaved = 0.0
                                 else:  # Assume last
-                                    autolog(DETAIL, u"ELECTRICITY SAVED: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.electricitySavedLast, self.timestampUtcLast, self.lastReadingElectricitySavedUtc, (self.lastReadingElectricitySavedUtc - 600000)))
-                                    if self.electricitySavedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingElectricitySavedUtc - 600000):
+                                    self.generalLogger.debug(
+                                        u"ELECTRICITY SAVED: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                            self.electricitySavedLast, self.timestampUtcLast,
+                                            self.lastReadingElectricitySavedUtc,
+                                            (self.lastReadingElectricitySavedUtc - 600000)))
+                                    if self.electricitySavedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                            self.lastReadingElectricitySavedUtc - 600000):
                                         wattsSaved = self.electricitySavedLast * 12
                                     else:
                                         wattsSaved = 0.0
@@ -3445,13 +3262,16 @@ class Plugin(indigo.PluginBase):
                                 if wattsSaved == 0.0:
                                     wattsSaved = self.electricitySavedPrevious
 
-                                wattsSavedStr = "%d Watts" % (wattsSaved)
-                                if not pluginGlobal['smappees'][devElectricitySaved.id]['hideEnergyMeterCurSavedPower']:
-                                    if wattsSaved == 0.0 and pluginGlobal['smappees'][devElectricitySaved.id]['hideEnergyMeterCurZeroSavedPower']:
+                                wattsSavedStr = "%d Watts" % wattsSaved
+                                if not self.globals['smappees'][devElectricitySaved.id]['hideEnergyMeterCurSavedPower']:
+                                    if wattsSaved == 0.0 and self.globals['smappees'][devElectricitySaved.id][
+                                            'hideEnergyMeterCurZeroSavedPower']:
                                         pass
                                     else:
-                                        autolog(INFO, u"received '%s' electricity saved reading: %s" % (devElectricitySaved.name, wattsSavedStr))
-                                devElectricitySaved.updateStateOnServer("curEnergyLevel", wattsSaved, uiValue=wattsSavedStr)
+                                        self.generalLogger.info(u"received '%s' electricity saved reading: %s" % (
+                                            devElectricitySaved.name, wattsSavedStr))
+                                devElectricitySaved.updateStateOnServer("curEnergyLevel", wattsSaved,
+                                                                        uiValue=wattsSavedStr)
                                 if float(indigo.server.apiVersion) >= 1.18:
                                     devElectricitySaved.updateStateImageOnServer(indigo.kStateImageSel.EnergyMeterOn)
 
@@ -3460,69 +3280,96 @@ class Plugin(indigo.PluginBase):
                                 else:
                                     savedPercentage = int(0)
                                 savedPercentageStr = "%d%%" % savedPercentage
-                                devElectricitySaved.updateStateOnServer("kwhCurrentSavedPercentage", savedPercentage, uiValue=savedPercentageStr)
+                                devElectricitySaved.updateStateOnServer("kwhCurrentSavedPercentage", savedPercentage,
+                                                                        uiValue=savedPercentageStr)
 
                             if "accumEnergyTotal" in devElectricitySaved.states:
                                 if commandSentToSmappee == 'RESET_CONSUMPTION':
-                                    pluginGlobal['smappees'][devElectricitySaved.id]['accumEnergyTotal'] = 0.0
-                                    wattSavedStr = "%3.0f Watts" % (pluginGlobal['smappees'][devElectricitySaved.id]['accumEnergyTotal'])
-                                    devElectricitySaved.updateStateOnServer("accumEnergyTotal", pluginGlobal['smappees'][devElectricitySaved.id]['accumEnergyTotal'], uiValue=wattSavedStr)
+                                    self.globals['smappees'][devElectricitySaved.id]['accumEnergyTotal'] = 0.0
+                                    wattSavedStr = "%3.0f Watts" % (
+                                        self.globals['smappees'][devElectricitySaved.id]['accumEnergyTotal'])
+                                    devElectricitySaved.updateStateOnServer("accumEnergyTotal",
+                                                                            self.globals['smappees'][
+                                                                                devElectricitySaved.id][
+                                                                                'accumEnergyTotal'],
+                                                                            uiValue=wattSavedStr)
 
                                 if "accumEnergyTotal" in devElectricity.states:
                                     # Need to check this as the gross amount, unit cost and currency code is retrieved from the Electricity Device
 
                                     kwhSaved = float(devElectricitySaved.states.get("accumEnergyTotal", 0))
                                     kwhSaved += float(self.electricitySavedTotal / 1000.0)
-                                    kwhSavedStr = str("%0.3f kWh" % (kwhSaved))
-                                    kwhUnitCost = pluginGlobal['smappees'][devElectricity.id]['kwhUnitCost']
+                                    kwhSavedStr = str("%0.3f kWh" % kwhSaved)
+                                    kwhUnitCost = self.globals['smappees'][devElectricity.id]['kwhUnitCost']
 
                                     amountSaved = 0.00
                                     if kwhUnitCost > 0.00:
                                         amountSaved = (kwhSaved * kwhUnitCost)
-                                        amountSavedReformatted = float(str("%0.2f" % (amountSaved)))
-                                        amountSavedStr = str("%0.2f %s" % (amountSaved, pluginGlobal['smappees'][devElectricity.id]['currencyCode']))
-                                        devElectricitySaved.updateStateOnServer("dailyTotalCostSaving", amountSavedReformatted, uiValue=amountSavedStr)
+                                        amountSavedReformatted = float(str("%0.2f" % amountSaved))
+                                        amountSavedStr = str("%0.2f %s" % (
+                                            amountSaved, self.globals['smappees'][devElectricity.id]['currencyCode']))
+                                        devElectricitySaved.updateStateOnServer("dailyTotalCostSaving",
+                                                                                amountSavedReformatted,
+                                                                                uiValue=amountSavedStr)
 
                                         savedElectricityCalculated = True  # Enables calculation and storing of: dailyTotalPlusSavedElecIncome
 
-                                    if not pluginGlobal['smappees'][devElectricitySaved.id]['hideEnergyMeterAccumSavedPower']:
-                                        if kwhUnitCost == 0.00 or pluginGlobal['smappees'][devElectricitySaved.id]['hideEnergyMeterAccumSavedPowerCost'] == True:
-                                            autolog(INFO, u"received '%s' saved energy total: %s" % (devElectricitySaved.name, kwhSavedStr))
+                                    if not self.globals['smappees'][devElectricitySaved.id][
+                                            'hideEnergyMeterAccumSavedPower']:
+                                        if kwhUnitCost == 0.00 or self.globals['smappees'][devElectricitySaved.id][
+                                                'hideEnergyMeterAccumSavedPowerCost']:
+                                            self.generalLogger.info(u"received '%s' saved energy total: %s" % (
+                                                devElectricitySaved.name, kwhSavedStr))
                                         else:
-                                            autolog(INFO, u"received '%s' saved energy total: %s (Saved %s)" % (devElectricitySaved.name, kwhSavedStr, amountSavedStr))
+                                            self.generalLogger.info(
+                                                u"received '%s' saved energy total: %s (Saved %s)" % (
+                                                    devElectricitySaved.name, kwhSavedStr, amountSavedStr))
 
-                                    kwhSavedReformatted = float("%0.3f" % (kwhSaved))
-                                    devElectricitySaved.updateStateOnServer("accumEnergyTotal", kwhSavedReformatted, uiValue=kwhSavedStr)
+                                    kwhSavedReformatted = float("%0.3f" % kwhSaved)
+                                    devElectricitySaved.updateStateOnServer("accumEnergyTotal", kwhSavedReformatted,
+                                                                            uiValue=kwhSavedStr)
 
                                     if kwhSaved > 0.00:
                                         savedDailyPercentage = int(round((kwhSaved / kwh) * 100))
                                     else:
                                         savedDailyPercentage = int(0)
                                     savedDailyPercentageStr = "%d %%" % savedDailyPercentage
-                                    devElectricitySaved.updateStateOnServer("kwhDailyTotalSavedPercentage", savedDailyPercentage, uiValue=savedDailyPercentageStr)
+                                    devElectricitySaved.updateStateOnServer("kwhDailyTotalSavedPercentage",
+                                                                            savedDailyPercentage,
+                                                                            uiValue=savedDailyPercentageStr)
 
-                            pluginGlobal['smappees'][devElectricitySaved.id]['lastReadingElectricitySavedUtc'] = self.timestampUtc
+                            self.globals['smappees'][devElectricitySaved.id][
+                                'lastReadingElectricitySavedUtc'] = self.timestampUtc
 
-                        if pluginGlobal['config']['supportsSolar'] == True:
+                        if self.globals['config']['supportsSolar']:
 
                             if "curEnergyLevel" in devSolar.states:
                                 if commandSentToSmappee == 'RESET_CONSUMPTION':
 
-                                    pluginGlobal['smappees'][devSolar.id]['curEnergyLevel'] = 0.0
-                                    pluginGlobal['smappees'][devSolar.id]['accumEnergyTotal'] = 0.0
-                                    wattSolarStr = "%3.0f Watts" % (pluginGlobal['smappees'][devSolar.id]['curEnergyLevel'])
-                                    devSolar.updateStateOnServer("curEnergyLevel", pluginGlobal['smappees'][devSolar.id]['curEnergyLevel'], uiValue=wattSolarStr)
+                                    self.globals['smappees'][devSolar.id]['curEnergyLevel'] = 0.0
+                                    self.globals['smappees'][devSolar.id]['accumEnergyTotal'] = 0.0
+                                    wattSolarStr = "%3.0f Watts" % (
+                                        self.globals['smappees'][devSolar.id]['curEnergyLevel'])
+                                    devSolar.updateStateOnServer("curEnergyLevel",
+                                                                 self.globals['smappees'][devSolar.id][
+                                                                     'curEnergyLevel'], uiValue=wattSolarStr)
                                     if float(indigo.server.apiVersion) >= 1.18:
                                         devSolar.updateStateImageOnServer(indigo.kStateImageSel.EnergyMeterOff)
 
-                                self.optionsEnergyMeterCurPower = devSolar.pluginProps['optionsEnergyMeterCurPower']  # mean, minimum, maximum, last
+                                self.optionsEnergyMeterCurPower = devSolar.pluginProps[
+                                    'optionsEnergyMeterCurPower']  # mean, minimum, maximum, last
                                 if self.optionsEnergyMeterCurPower == 'mean':
                                     if self.solarNumberOfValues > 0:
-                                        wattsSolar = self.solarTotal * (60.0 / float(float(self.solarNumberOfValues) * 5))
-                                        autolog(DETAIL, u"watts > 0 =[%s]" % (watts))
+                                        wattsSolar = self.solarTotal * (
+                                                60.0 / float(float(self.solarNumberOfValues) * 5))
+                                        self.generalLogger.debug(u"watts > 0 =[%s]" % watts)
                                     else:
-                                        autolog(DETAIL, u"SOLAR: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.solarLast, self.timestampUtcLast, self.lastReadingSolarUtc, (self.lastReadingSolarUtc - 600000)))
-                                        if self.solarLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingSolarUtc - 600000):
+                                        self.generalLogger.debug(
+                                            u"SOLAR: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                                self.solarLast, self.timestampUtcLast, self.lastReadingSolarUtc,
+                                                (self.lastReadingSolarUtc - 600000)))
+                                        if self.solarLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                                self.lastReadingSolarUtc - 600000):
                                             wattsSolar = self.solarLast * 12
                                         else:
                                             wattsSolar = 0.0
@@ -3530,8 +3377,12 @@ class Plugin(indigo.PluginBase):
                                     if self.solarNumberOfValues > 0:
                                         wattsSolar = self.solarMinimum * 12
                                     else:
-                                        autolog(DETAIL, u"SOLAR: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.solarLast, self.timestampUtcLast, self.lastReadingSolarUtc, (self.lastReadingSolarUtc - 600000)))
-                                        if self.solarLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingSolarUtc - 600000):
+                                        self.generalLogger.debug(
+                                            u"SOLAR: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                                self.solarLast, self.timestampUtcLast, self.lastReadingSolarUtc,
+                                                (self.lastReadingSolarUtc - 600000)))
+                                        if self.solarLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                                self.lastReadingSolarUtc - 600000):
                                             wattsSolar = self.solarLast * 12
                                         else:
                                             wattsSolar = 0.0
@@ -3539,14 +3390,21 @@ class Plugin(indigo.PluginBase):
                                     if self.solarNumberOfValues > 0:
                                         wattsSolar = self.solarMaximum * 12
                                     else:
-                                        autolog(DETAIL, u"SOLAR: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.solarLast, self.timestampUtcLast, self.lastReadingSolarUtc, (self.lastReadingSolarUtc - 600000)))
-                                        if self.solarLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingSolarUtc - 600000):
+                                        self.generalLogger.debug(
+                                            u"SOLAR: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                                self.solarLast, self.timestampUtcLast, self.lastReadingSolarUtc,
+                                                (self.lastReadingSolarUtc - 600000)))
+                                        if self.solarLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                                self.lastReadingSolarUtc - 600000):
                                             wattsSolar = self.solarLast * 12
                                         else:
                                             wattsSolar = 0.0
                                 else:  # Assume last
-                                    autolog(DETAIL, u"SOLAR: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.solarLast, self.timestampUtcLast, self.lastReadingSolarUtc, (self.lastReadingSolarUtc - 600000)))
-                                    if self.solarLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingSolarUtc - 600000):
+                                    self.generalLogger.debug(u"SOLAR: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                        self.solarLast, self.timestampUtcLast, self.lastReadingSolarUtc,
+                                        (self.lastReadingSolarUtc - 600000)))
+                                    if self.solarLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                            self.lastReadingSolarUtc - 600000):
                                         wattsSolar = self.solarLast * 12
                                     else:
                                         wattsSolar = 0.0
@@ -3554,21 +3412,26 @@ class Plugin(indigo.PluginBase):
                                 if wattsSolar == 0.0:
                                     wattsSolar = self.solarPrevious
 
-                                wattsSolarStr = "%d Watts" % (wattsSolar)
-                                if not pluginGlobal['smappees'][devSolar.id]['hideSolarMeterCurGeneration']:
-                                    if wattsSolar == 0.0 and pluginGlobal['smappees'][devSolar.id]['hideZeroSolarMeterCurGeneration']:
+                                wattsSolarStr = "%d Watts" % wattsSolar
+                                if not self.globals['smappees'][devSolar.id]['hideSolarMeterCurGeneration']:
+                                    if wattsSolar == 0.0 and self.globals['smappees'][devSolar.id][
+                                            'hideZeroSolarMeterCurGeneration']:
                                         pass
                                     else:
-                                        autolog(INFO, u"received '%s' solar generation reading: %s" % (devSolar.name, wattsSolarStr))
+                                        self.generalLogger.info(u"received '%s' solar generation reading: %s" % (
+                                            devSolar.name, wattsSolarStr))
                                 devSolar.updateStateOnServer("curEnergyLevel", wattsSolar, uiValue=wattsSolarStr)
                                 if float(indigo.server.apiVersion) >= 1.18:
                                     devSolar.updateStateImageOnServer(indigo.kStateImageSel.EnergyMeterOn)
 
                             if "accumEnergyTotal" in devSolar.states:
                                 if commandSentToSmappee == 'RESET_CONSUMPTION':
-                                    pluginGlobal['smappees'][devSolar.id]['accumEnergyTotal'] = 0.0
-                                    wattSolarStr = "%3.0f Watts" % (pluginGlobal['smappees'][devSolar.id]['accumEnergyTotal'])
-                                    devSolar.updateStateOnServer("accumEnergyTotal", pluginGlobal['smappees'][devSolar.id]['accumEnergyTotal'], uiValue=wattSolarStr)
+                                    self.globals['smappees'][devSolar.id]['accumEnergyTotal'] = 0.0
+                                    wattSolarStr = "%3.0f Watts" % (
+                                        self.globals['smappees'][devSolar.id]['accumEnergyTotal'])
+                                    devSolar.updateStateOnServer("accumEnergyTotal",
+                                                                 self.globals['smappees'][devSolar.id][
+                                                                     'accumEnergyTotal'], uiValue=wattSolarStr)
 
                                 # To calculate Amounts (financials) all three device types solar, solaUsed and solarExported must be present
 
@@ -3578,21 +3441,22 @@ class Plugin(indigo.PluginBase):
 
                                 kwhSolar = float(devSolar.states.get("accumEnergyTotal", 0))
                                 kwhSolar += float(self.solarTotal / 1000.0)
-                                kwhSolarStr = str("%0.3f kWh" % (kwhSolar))
+                                kwhSolarStr = str("%0.3f kWh" % kwhSolar)
 
-                                generationRate = pluginGlobal['smappees'][devSolar.id]['generationRate']
-                                exportRate = pluginGlobal['smappees'][devSolar.id]['exportRate']
+                                generationRate = self.globals['smappees'][devSolar.id]['generationRate']
+                                exportRate = self.globals['smappees'][devSolar.id]['exportRate']
 
-                                if pluginGlobal['config']['supportsSolarUsed'] == True and "accumEnergyTotal" in devSolarUsed.states:
+                                if self.globals['config'][
+                                        'supportsSolarUsed'] and "accumEnergyTotal" in devSolarUsed.states:
                                     # Calculate Solar Used (Daily)
                                     kwhUsed = float(devSolarUsed.states.get("accumEnergyTotal", 0))
                                     kwhUsed += float(self.solarUsedTotal / 1000.0)
 
-                                    if pluginGlobal['config']['supportsSolarExported'] == True and "accumEnergyTotal" in devSolarExported.states:
+                                    if self.globals['config'][
+                                            'supportsSolarExported'] and "accumEnergyTotal" in devSolarExported.states:
                                         # Calculate Solar Exported (Daily)
                                         kwhExported = float(devSolarExported.states.get("accumEnergyTotal", 0))
                                         kwhExported += float(self.solarExportedTotal / 1000.0)
-
 
                                         amountSolar = 0.00
                                         amountExported = 0.00  # Needed for calculation of total FIT payment
@@ -3601,9 +3465,10 @@ class Plugin(indigo.PluginBase):
                                         if generationRate > 0.00:
                                             amountGenerated = (kwhSolar * generationRate)
                                         if exportRate > 0.00:
-                                            exportType = pluginGlobal['smappees'][devSolar.id]['exportType']
+                                            exportType = self.globals['smappees'][devSolar.id]['exportType']
                                             if exportType == 'percentage':
-                                                exportPercentage = pluginGlobal['smappees'][devSolar.id]['exportPercentage']
+                                                exportPercentage = self.globals['smappees'][devSolar.id][
+                                                    'exportPercentage']
                                             elif exportType == 'actual':
                                                 exportPercentage = (kwhExported / kwhSolar) * 100
                                             else:
@@ -3612,57 +3477,76 @@ class Plugin(indigo.PluginBase):
 
                                         amountSolar = amountGenerated + amountExported
 
-                                        amountGeneratedReformatted = float(str("%0.2f" % (amountGenerated)))
-                                        amountGeneratedStr = str("%0.2f %s" % (amountGenerated, pluginGlobal['smappees'][devSolar.id]['currencyCode']))
-                                        devSolar.updateStateOnServer("dailyTotalGenOnlyIncome", amountGeneratedReformatted, uiValue=amountGeneratedStr)
+                                        amountGeneratedReformatted = float(str("%0.2f" % amountGenerated))
+                                        amountGeneratedStr = str("%0.2f %s" % (
+                                            amountGenerated, self.globals['smappees'][devSolar.id]['currencyCode']))
+                                        devSolar.updateStateOnServer("dailyTotalGenOnlyIncome",
+                                                                     amountGeneratedReformatted,
+                                                                     uiValue=amountGeneratedStr)
 
-                                        amountSolarReformatted = float(str("%0.2f" % (amountSolar)))
-                                        amountSolarStr = str("%0.2f %s" % (amountSolarReformatted, pluginGlobal['smappees'][devSolar.id]['currencyCode']))
-                                        devSolar.updateStateOnServer("dailyTotalIncome", amountSolarReformatted, uiValue=amountSolarStr)
+                                        amountSolarReformatted = float(str("%0.2f" % amountSolar))
+                                        amountSolarStr = str("%0.2f %s" % (
+                                            amountSolarReformatted,
+                                            self.globals['smappees'][devSolar.id]['currencyCode']))
+                                        devSolar.updateStateOnServer("dailyTotalIncome", amountSolarReformatted,
+                                                                     uiValue=amountSolarStr)
 
-                                        if savedElectricityCalculated == True:
+                                        if savedElectricityCalculated:
                                             amountSolarPlusSaving = amountSolar + amountSaved
-                                            amountSolarPlusSavingReformatted = float(str("%0.2f" % (amountSolarPlusSaving)))
-                                            amountSolarPlusSavingStr = str("%0.2f %s" % (amountSolarPlusSaving, pluginGlobal['smappees'][devSolar.id]['currencyCode']))
-                                            devSolar.updateStateOnServer("dailyTotalPlusSavedElecIncome", amountSolarPlusSavingReformatted, uiValue=amountSolarPlusSavingStr)
+                                            amountSolarPlusSavingReformatted = float(
+                                                str("%0.2f" % amountSolarPlusSaving))
+                                            amountSolarPlusSavingStr = str("%0.2f %s" % (amountSolarPlusSaving,
+                                                                                         self.globals['smappees'][
+                                                                                             devSolar.id][
+                                                                                             'currencyCode']))
+                                            devSolar.updateStateOnServer("dailyTotalPlusSavedElecIncome",
+                                                                         amountSolarPlusSavingReformatted,
+                                                                         uiValue=amountSolarPlusSavingStr)
 
-                                if not pluginGlobal['smappees'][devSolar.id]['hideSolarMeterAccumGeneration']:
-                                    if pluginGlobal['smappees'][devSolar.id]['hideSolarMeterAccumGenerationCost']:
-                                        if generationRate == 0.00 and pluginGlobal['smappees'][devSolar.id]['hideZeroSolarMeterCurGeneration']:
+                                if not self.globals['smappees'][devSolar.id]['hideSolarMeterAccumGeneration']:
+                                    if self.globals['smappees'][devSolar.id]['hideSolarMeterAccumGenerationCost']:
+                                        if generationRate == 0.00 and self.globals['smappees'][devSolar.id][
+                                                'hideZeroSolarMeterCurGeneration']:
                                             pass  # Don't output zero solar values
                                         else:
-                                            # if 'no change in solar' and pluginGlobal['smappees'][devSolar.id]['hideNoChangeInSolarMeterAccumGeneration']:
+                                            # if 'no change in solar' and self.globals['smappees'][devSolar.id]['hideNoChangeInSolarMeterAccumGeneration']:
                                             #     pass
                                             # else:
                                             # do code below .... (remember to indent it!)
-                                            autolog(INFO, u"received '%s' solar generation total: %s" % (devSolar.name, kwhSolarStr))
+                                            self.generalLogger.info(u"received '%s' solar generation total: %s" % (
+                                                devSolar.name, kwhSolarStr))
                                     else:
-                                        if generationRate == 0.00 and pluginGlobal['smappees'][devSolar.id]['hideZeroSolarMeterCurGeneration']:
+                                        if generationRate == 0.00 and self.globals['smappees'][devSolar.id][
+                                                'hideZeroSolarMeterCurGeneration']:
                                             pass  # Don't output zero solar values
                                         else:
-                                            # if 'no change in solar' and pluginGlobal['smappees'][devSolar.id]['hideNoChangeInSolarMeterAccumGeneration']:
+                                            # if 'no change in solar' and self.globals['smappees'][devSolar.id]['hideNoChangeInSolarMeterAccumGeneration']:
                                             #     pass
                                             # else:
                                             # do code below .... (remember to indent it!)
-                                            autolog(INFO, u"received '%s' solar generation total: %s (%s)" % (devSolar.name, kwhSolarStr, amountSolarStr))
-                                      
+                                            self.generalLogger.info(u"received '%s' solar generation total: %s (%s)" % (
+                                                devSolar.name, kwhSolarStr, amountSolarStr))
 
-                                            # pluginGlobal['smappees'][devSolar.id]['hideNoChangeInSolarMeterAccumGeneration'] and kwhReformatted == float(devSolar.states['accumEnergyTotal']) and wattsSolar == 0.0:
+                                            # self.globals['smappees'][devSolar.id]['hideNoChangeInSolarMeterAccumGeneration'] and kwhReformatted == float(devSolar.states['accumEnergyTotal']) and wattsSolar == 0.0:
 
-                                kwhSolarReformatted = float("%0.3f" % (kwhSolar))
-                                devSolar.updateStateOnServer("accumEnergyTotal", kwhSolarReformatted, uiValue=kwhSolarStr)
+                                kwhSolarReformatted = float("%0.3f" % kwhSolar)
+                                devSolar.updateStateOnServer("accumEnergyTotal", kwhSolarReformatted,
+                                                             uiValue=kwhSolarStr)
 
-                            pluginGlobal['smappees'][devSolar.id]['lastReadingSolarUtc'] = self.timestampUtc
+                            self.globals['smappees'][devSolar.id]['lastReadingSolarUtc'] = self.timestampUtc
 
-                        if pluginGlobal['config']['supportsSolarUsed'] == True:
+                        if self.globals['config']['supportsSolarUsed']:
 
                             if "curEnergyLevel" in devSolarUsed.states:
                                 if commandSentToSmappee == 'RESET_CONSUMPTION':
 
-                                    pluginGlobal['smappees'][devSolarUsed.id]['curEnergyLevel'] = 0.0
-                                    pluginGlobal['smappees'][devSolarUsed.id]['accumEnergyTotal'] = 0.0
-                                    wattsUsedStr = "%3.0f Watts" % (pluginGlobal['smappees'][devSolarUsed.id]['curEnergyLevel'])
-                                    devSolarUsed.updateStateOnServer("curEnergyLevel", pluginGlobal['smappees'][devSolarUsed.id]['curEnergyLevel'], uiValue=wattsUsedStr)
+                                    self.globals['smappees'][devSolarUsed.id]['curEnergyLevel'] = 0.0
+                                    self.globals['smappees'][devSolarUsed.id]['accumEnergyTotal'] = 0.0
+                                    wattsUsedStr = "%3.0f Watts" % (
+                                        self.globals['smappees'][devSolarUsed.id]['curEnergyLevel'])
+                                    devSolarUsed.updateStateOnServer("curEnergyLevel",
+                                                                     self.globals['smappees'][devSolarUsed.id][
+                                                                         'curEnergyLevel'], uiValue=wattsUsedStr)
                                     if float(indigo.server.apiVersion) >= 1.18:
                                         devSolarUsed.updateStateImageOnServer(indigo.kStateImageSel.EnergyMeterOff)
 
@@ -3672,8 +3556,13 @@ class Plugin(indigo.PluginBase):
                                     if self.solarUsedNumberOfValues > 0:
                                         wattsUsed = (self.solarUsedMeanAverage * 60) / 5
                                     else:
-                                        autolog(DETAIL, u"ELECTRICITY NET: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.solarUsedLast, self.timestampUtcLast, self.lastReadingElectricityNetUtc, (self.lastReadingElectricityNetUtc - 600000)))
-                                        if self.solarUsedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingElectricityNetUtc - 600000):
+                                        self.generalLogger.debug(
+                                            u"ELECTRICITY NET: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                                self.solarUsedLast, self.timestampUtcLast,
+                                                self.lastReadingElectricityNetUtc,
+                                                (self.lastReadingElectricityNetUtc - 600000)))
+                                        if self.solarUsedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                                self.lastReadingElectricityNetUtc - 600000):
                                             wattsUsed = self.solarUsedLast * 12
                                         else:
                                             wattsUsed = 0.0
@@ -3681,8 +3570,13 @@ class Plugin(indigo.PluginBase):
                                     if self.solarUsedNumberOfValues > 0:
                                         wattsUsed = self.solarUsedMinimum * 12
                                     else:
-                                        autolog(DETAIL, u"ELECTRICITY NET: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.solarUsedLast, self.timestampUtcLast, self.lastReadingElectricityNetUtc, (self.lastReadingElectricityNetUtc - 600000)))
-                                        if self.solarUsedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingElectricityNetUtc - 600000):
+                                        self.generalLogger.debug(
+                                            u"ELECTRICITY NET: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                                self.solarUsedLast, self.timestampUtcLast,
+                                                self.lastReadingElectricityNetUtc,
+                                                (self.lastReadingElectricityNetUtc - 600000)))
+                                        if self.solarUsedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                                self.lastReadingElectricityNetUtc - 600000):
                                             wattsUsed = self.solarUsedLast * 12
                                         else:
                                             wattsUsed = 0.0
@@ -3690,14 +3584,23 @@ class Plugin(indigo.PluginBase):
                                     if self.solarUsedNumberOfValues > 0:
                                         wattsUsed = self.solarUsedMaximum * 12
                                     else:
-                                        autolog(DETAIL, u"ELECTRICITY NET: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.solarUsedLast, self.timestampUtcLast, self.lastReadingElectricityNetUtc, (self.lastReadingElectricityNetUtc - 600000)))
-                                        if self.solarUsedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingElectricityNetUtc - 600000):
+                                        self.generalLogger.debug(
+                                            u"ELECTRICITY NET: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                                self.solarUsedLast, self.timestampUtcLast,
+                                                self.lastReadingElectricityNetUtc,
+                                                (self.lastReadingElectricityNetUtc - 600000)))
+                                        if self.solarUsedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                                self.lastReadingElectricityNetUtc - 600000):
                                             wattsUsed = self.solarUsedLast * 12
                                         else:
                                             wattsUsed = 0.0
                                 else:  # Assume last
-                                    autolog(DETAIL, u"SOLAR USED: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.solarUsedLast, self.timestampUtcLast, self.lastReadingSolarUsedUtc, (self.lastReadingSolarUsedUtc - 600000)))
-                                    if self.solarUsedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingSolarUsedUtc - 600000):
+                                    self.generalLogger.debug(
+                                        u"SOLAR USED: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                            self.solarUsedLast, self.timestampUtcLast, self.lastReadingSolarUsedUtc,
+                                            (self.lastReadingSolarUsedUtc - 600000)))
+                                    if self.solarUsedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                            self.lastReadingSolarUsedUtc - 600000):
                                         wattsUsed = self.solarUsedLast * 12
                                     else:
                                         wattsUsed = 0.0
@@ -3705,12 +3608,14 @@ class Plugin(indigo.PluginBase):
                                 if wattsUsed == 0.0:
                                     wattsUsed = self.solarUsedPrevious
 
-                                wattsUsedStr = "%d Watts" % (wattsUsed)
-                                if not pluginGlobal['smappees'][devSolarUsed.id]['hideSolarUsedMeterCurGeneration']:
-                                    if wattsUsed == 0.0 and pluginGlobal['smappees'][devSolarUsed.id]['hideZeroSolarUsedMeterCurGeneration']:
+                                wattsUsedStr = "%d Watts" % wattsUsed
+                                if not self.globals['smappees'][devSolarUsed.id]['hideSolarUsedMeterCurGeneration']:
+                                    if wattsUsed == 0.0 and self.globals['smappees'][devSolarUsed.id][
+                                            'hideZeroSolarUsedMeterCurGeneration']:
                                         pass
                                     else:
-                                        autolog(INFO, u"received '%s' solar power used reading: %s" % (devSolarUsed.name, wattsUsedStr))
+                                        self.generalLogger.info(u"received '%s' solar power used reading: %s" % (
+                                            devSolarUsed.name, wattsUsedStr))
                                 devSolarUsed.updateStateOnServer("curEnergyLevel", wattsUsed, uiValue=wattsUsedStr)
                                 if float(indigo.server.apiVersion) >= 1.18:
                                     devSolarUsed.updateStateImageOnServer(indigo.kStateImageSel.EnergyMeterOn)
@@ -3720,28 +3625,35 @@ class Plugin(indigo.PluginBase):
                                 else:
                                     usedPercentage = int(0)
                                 usedPercentageStr = "%d %%" % usedPercentage
-                                devSolarUsed.updateStateOnServer("kwhCurrentUsedPercentage", usedPercentage, uiValue=usedPercentageStr)
+                                devSolarUsed.updateStateOnServer("kwhCurrentUsedPercentage", usedPercentage,
+                                                                 uiValue=usedPercentageStr)
 
                             if "accumEnergyTotal" in devSolarUsed.states:
                                 if commandSentToSmappee == 'RESET_CONSUMPTION':
-                                    pluginGlobal['smappees'][devSolarUsed.id]['accumEnergyTotal'] = 0.0
-                                    wattStr = "%3.0f Watts" % (pluginGlobal['smappees'][devSolarUsed.id]['accumEnergyTotal'])
-                                    devSolarUsed.updateStateOnServer("accumEnergyTotal", pluginGlobal['smappees'][devSolarUsed.id]['accumEnergyTotal'], uiValue=wattStr)
+                                    self.globals['smappees'][devSolarUsed.id]['accumEnergyTotal'] = 0.0
+                                    wattStr = "%3.0f Watts" % (
+                                        self.globals['smappees'][devSolarUsed.id]['accumEnergyTotal'])
+                                    devSolarUsed.updateStateOnServer("accumEnergyTotal",
+                                                                     self.globals['smappees'][devSolarUsed.id][
+                                                                         'accumEnergyTotal'], uiValue=wattStr)
 
                                 # kwhUsed = float(devSolarUsed.states.get("accumEnergyTotal", 0))
                                 # kwhUsed += float(self.solarUsedTotal / 1000.0)
-                                kwhUsedStr = str("%0.3f kWh" % (kwhUsed))  # Calculated in solar device
+                                kwhUsedStr = str("%0.3f kWh" % kwhUsed)  # Calculated in solar device
 
-                                kwhUsedReformatted = float("%0.3f" % (kwhUsed))
+                                kwhUsedReformatted = float("%0.3f" % kwhUsed)
 
-                                if not pluginGlobal['smappees'][devSolarUsed.id]['hideSolarUsedMeterAccumGeneration']:
-                                    if pluginGlobal['smappees'][devSolarUsed.id]['hideNoChangeInSolarUsedMeterAccumGeneration'] and kwhUsedReformatted == float(devSolarUsed.states['accumEnergyTotal']) and wattsUsed == 0.0:
+                                if not self.globals['smappees'][devSolarUsed.id]['hideSolarUsedMeterAccumGeneration']:
+                                    if self.globals['smappees'][devSolarUsed.id][
+                                            'hideNoChangeInSolarUsedMeterAccumGeneration'] and kwhUsedReformatted == float(
+                                            devSolarUsed.states['accumEnergyTotal']) and wattsUsed == 0.0:
                                         pass
                                     else:
-                                        autolog(INFO, u"received '%s' solar energy used total: %s" % (devSolarUsed.name, kwhUsedStr))
+                                        self.generalLogger.info(u"received '%s' solar energy used total: %s" % (
+                                            devSolarUsed.name, kwhUsedStr))
 
-                                devSolarUsed.updateStateOnServer("accumEnergyTotal", kwhUsedReformatted, uiValue=kwhUsedStr)
-
+                                devSolarUsed.updateStateOnServer("accumEnergyTotal", kwhUsedReformatted,
+                                                                 uiValue=kwhUsedStr)
 
                                 if "accumEnergyTotal" in devSolar.states:
                                     # Needed to caculate total used percentage - uses 'kwhSolar'
@@ -3749,21 +3661,26 @@ class Plugin(indigo.PluginBase):
                                     if kwhSolar > 0.00:
                                         usedDailyPercentage = int(round((kwhUsed / kwhSolar) * 100))
                                     else:
-                                        usedDailyPercentage = int(0)                                        
+                                        usedDailyPercentage = int(0)
                                     usedDailyPercentageStr = "%d %%" % usedDailyPercentage
-                                    devSolarUsed.updateStateOnServer("kwhDailyTotalUsedPercentage", usedDailyPercentage, uiValue=usedDailyPercentageStr)
+                                    devSolarUsed.updateStateOnServer("kwhDailyTotalUsedPercentage", usedDailyPercentage,
+                                                                     uiValue=usedDailyPercentageStr)
 
-                            pluginGlobal['smappees'][devSolarUsed.id]['lastReadingSolarUsedUtc'] = self.timestampUtc
+                            self.globals['smappees'][devSolarUsed.id]['lastReadingSolarUsedUtc'] = self.timestampUtc
 
-                        if pluginGlobal['config']['supportsSolarExported'] == True:
+                        if self.globals['config']['supportsSolarExported']:
 
                             if "curEnergyLevel" in devSolarExported.states:
                                 if commandSentToSmappee == 'RESET_CONSUMPTION':
 
-                                    pluginGlobal['smappees'][devSolarExported.id]['curEnergyLevel'] = 0.0
-                                    pluginGlobal['smappees'][devSolarExported.id]['accumEnergyTotal'] = 0.0
-                                    wattsExportedStr = "%3.0f Watts" % (pluginGlobal['smappees'][devSolarExported.id]['curEnergyLevel'])
-                                    devSolarExported.updateStateOnServer("curEnergyLevel", pluginGlobal['smappees'][devSolarExported.id]['curEnergyLevel'], uiValue=wattsExportedStr)
+                                    self.globals['smappees'][devSolarExported.id]['curEnergyLevel'] = 0.0
+                                    self.globals['smappees'][devSolarExported.id]['accumEnergyTotal'] = 0.0
+                                    wattsExportedStr = "%3.0f Watts" % (
+                                        self.globals['smappees'][devSolarExported.id]['curEnergyLevel'])
+                                    devSolarExported.updateStateOnServer("curEnergyLevel",
+                                                                         self.globals['smappees'][devSolarExported.id][
+                                                                             'curEnergyLevel'],
+                                                                         uiValue=wattsExportedStr)
                                     if float(indigo.server.apiVersion) >= 1.18:
                                         devSolarExported.updateStateImageOnServer(indigo.kStateImageSel.EnergyMeterOff)
 
@@ -3773,8 +3690,13 @@ class Plugin(indigo.PluginBase):
                                     if self.solarExportedNumberOfValues > 0:
                                         wattsExported = (self.solarExportedMeanAverage * 60) / 5
                                     else:
-                                        autolog(DETAIL, u"ELECTRICITY NET: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.solarExportedLast, self.timestampUtcLast, self.lastReadingElectricityNetUtc, (self.lastReadingElectricityNetUtc - 600000)))
-                                        if self.solarExportedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingElectricityNetUtc - 600000):
+                                        self.generalLogger.debug(
+                                            u"ELECTRICITY NET: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                                self.solarExportedLast, self.timestampUtcLast,
+                                                self.lastReadingElectricityNetUtc,
+                                                (self.lastReadingElectricityNetUtc - 600000)))
+                                        if self.solarExportedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                                self.lastReadingElectricityNetUtc - 600000):
                                             wattsExported = self.solarExportedLast * 12
                                         else:
                                             wattsExported = 0.0
@@ -3782,8 +3704,13 @@ class Plugin(indigo.PluginBase):
                                     if self.solarExportedNumberOfValues > 0:
                                         wattsExported = self.solarExportedMinimum * 12
                                     else:
-                                        autolog(DETAIL, u"ELECTRICITY NET: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.solarExportedLast, self.timestampUtcLast, self.lastReadingElectricityNetUtc, (self.lastReadingElectricityNetUtc - 600000)))
-                                        if self.solarExportedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingElectricityNetUtc - 600000):
+                                        self.generalLogger.debug(
+                                            u"ELECTRICITY NET: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                                self.solarExportedLast, self.timestampUtcLast,
+                                                self.lastReadingElectricityNetUtc,
+                                                (self.lastReadingElectricityNetUtc - 600000)))
+                                        if self.solarExportedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                                self.lastReadingElectricityNetUtc - 600000):
                                             wattsExported = self.solarExportedLast * 12
                                         else:
                                             wattsExported = 0.0
@@ -3791,17 +3718,26 @@ class Plugin(indigo.PluginBase):
                                     if self.solarExportedNumberOfValues > 0:
                                         wattsExported = self.solarExportedMaximum * 12
                                     else:
-                                        autolog(DETAIL, u"ELECTRICITY NET: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.solarExportedLast, self.timestampUtcLast, self.lastReadingElectricityNetUtc, (self.lastReadingElectricityNetUtc - 600000)))
-                                        if self.solarExportedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingElectricityNetUtc - 600000):
+                                        self.generalLogger.debug(
+                                            u"ELECTRICITY NET: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                                self.solarExportedLast, self.timestampUtcLast,
+                                                self.lastReadingElectricityNetUtc,
+                                                (self.lastReadingElectricityNetUtc - 600000)))
+                                        if self.solarExportedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                                self.lastReadingElectricityNetUtc - 600000):
                                             wattsExported = self.solarExportedLast * 12
                                         else:
                                             wattsExported = 0.0
                                 else:  # Assume last
- 
 
-                                    autolog(DETAIL, u"USAGESAVING: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (self.solarExportedLast, self.timestampUtcLast, self.lastReadingSolarExportedUtc, (self.lastReadingSolarExportedUtc - 600000)))
+                                    self.generalLogger.debug(
+                                        u"USAGESAVING: CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                            self.solarExportedLast, self.timestampUtcLast,
+                                            self.lastReadingSolarExportedUtc,
+                                            (self.lastReadingSolarExportedUtc - 600000)))
 
-                                    if self.solarExportedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (self.lastReadingSolarExportedUtc - 600000):
+                                    if self.solarExportedLast > 0.0 and self.timestampUtcLast != 0 and self.timestampUtcLast > (
+                                            self.lastReadingSolarExportedUtc - 600000):
                                         wattsExported = self.solarExportedLast * 12
                                     else:
                                         wattsExported = 0.0
@@ -3809,13 +3745,17 @@ class Plugin(indigo.PluginBase):
                                 if wattsExported == 0.0:
                                     wattsExported = self.solarExportedPrevious
 
-                                wattsExportedStr = "%d Watts" % (wattsExported)
-                                if not pluginGlobal['smappees'][devSolarExported.id]['hideSolarExportedMeterCurGeneration']:
-                                    if wattsExported == 0.0 and pluginGlobal['smappees'][devSolarExported.id]['hideZeroSolarExportedMeterCurGeneration']:
+                                wattsExportedStr = "%d Watts" % wattsExported
+                                if not self.globals['smappees'][devSolarExported.id][
+                                        'hideSolarExportedMeterCurGeneration']:
+                                    if wattsExported == 0.0 and self.globals['smappees'][devSolarExported.id][
+                                            'hideZeroSolarExportedMeterCurGeneration']:
                                         pass
                                     else:
-                                        autolog(INFO, u"received '%s' solar energy exported reading: %s" % (devSolarExported.name, wattsExportedStr))
-                                devSolarExported.updateStateOnServer("curEnergyLevel", wattsExported, uiValue=wattsExportedStr)
+                                        self.generalLogger.info(u"received '%s' solar energy exported reading: %s" % (
+                                            devSolarExported.name, wattsExportedStr))
+                                devSolarExported.updateStateOnServer("curEnergyLevel", wattsExported,
+                                                                     uiValue=wattsExportedStr)
                                 if float(indigo.server.apiVersion) >= 1.18:
                                     devSolarExported.updateStateImageOnServer(indigo.kStateImageSel.EnergyMeterOn)
 
@@ -3824,26 +3764,37 @@ class Plugin(indigo.PluginBase):
                                 else:
                                     exportedPercentage = int(0)
                                 exportedPercentageStr = "%d %%" % exportedPercentage
-                                devSolarExported.updateStateOnServer("kwhCurrentExportedPercentage", exportedPercentage, uiValue=exportedPercentageStr)
+                                devSolarExported.updateStateOnServer("kwhCurrentExportedPercentage", exportedPercentage,
+                                                                     uiValue=exportedPercentageStr)
 
                             if "accumEnergyTotal" in devSolarExported.states:
                                 if commandSentToSmappee == 'RESET_CONSUMPTION':
-                                    pluginGlobal['smappees'][devSolarExported.id]['accumEnergyTotal'] = 0.0
-                                    kwhExportedStr = "%3.0f kWh" % (pluginGlobal['smappees'][devSolarExported.id]['accumEnergyTotal'])
-                                    devSolarExported.updateStateOnServer("accumEnergyTotal", pluginGlobal['smappees'][devSolarExported.id]['accumEnergyTotal'], uiValue=kwhExportedStr)
+                                    self.globals['smappees'][devSolarExported.id]['accumEnergyTotal'] = 0.0
+                                    kwhExportedStr = "%3.0f kWh" % (
+                                        self.globals['smappees'][devSolarExported.id]['accumEnergyTotal'])
+                                    devSolarExported.updateStateOnServer("accumEnergyTotal",
+                                                                         self.globals['smappees'][devSolarExported.id][
+                                                                             'accumEnergyTotal'],
+                                                                         uiValue=kwhExportedStr)
 
                                 # kwhExported = float(devSolarExported.states.get("accumEnergyTotal", 0))
                                 # kwhExported += float(self.solarExportedTotal / 1000.0)
-                                kwhExportedStr = str("%0.3f kWh" % (kwhExported))  # Calculated in solar device - 'kwhExported'
-                                kwhExportedReformatted = float("%0.3f" % (kwhExported))
+                                kwhExportedStr = str(
+                                    "%0.3f kWh" % kwhExported)  # Calculated in solar device - 'kwhExported'
+                                kwhExportedReformatted = float("%0.3f" % kwhExported)
 
-                                if not pluginGlobal['smappees'][devSolarExported.id]['hideSolarExportedMeterAccumGeneration']:
-                                    if pluginGlobal['smappees'][devSolarExported.id]['hideNoChangeInSolarExportedMeterAccumGeneration'] and kwhExportedReformatted == float(devSolarExported.states['accumEnergyTotal']) and wattsExported == 0.0:
+                                if not self.globals['smappees'][devSolarExported.id][
+                                        'hideSolarExportedMeterAccumGeneration']:
+                                    if self.globals['smappees'][devSolarExported.id][
+                                            'hideNoChangeInSolarExportedMeterAccumGeneration'] and kwhExportedReformatted == float(
+                                            devSolarExported.states['accumEnergyTotal']) and wattsExported == 0.0:
                                         pass
                                     else:
-                                        autolog(INFO, u"received '%s' solar energy exported total: %s" % (devSolarExported.name, kwhExportedStr))
+                                        self.generalLogger.info(u"received '%s' solar energy exported total: %s" % (
+                                            devSolarExported.name, kwhExportedStr))
 
-                                devSolarExported.updateStateOnServer("accumEnergyTotal", kwhExportedReformatted, uiValue=kwhExportedStr)
+                                devSolarExported.updateStateOnServer("accumEnergyTotal", kwhExportedReformatted,
+                                                                     uiValue=kwhExportedStr)
 
                                 if "accumEnergyTotal" in devSolar.states:
                                     # Needed to caculate total exported percentage - uses 'kwhSolar'
@@ -3853,32 +3804,38 @@ class Plugin(indigo.PluginBase):
                                     else:
                                         exportedDailyPercentage = int(0)
                                     exportedDailyPercentageStr = "%d %%" % exportedDailyPercentage
-                                    devSolarExported.updateStateOnServer("kwhDailyTotalExportedPercentage", exportedDailyPercentage, uiValue=exportedDailyPercentageStr)
+                                    devSolarExported.updateStateOnServer("kwhDailyTotalExportedPercentage",
+                                                                         exportedDailyPercentage,
+                                                                         uiValue=exportedDailyPercentageStr)
 
-                                amountExportedReformatted = float(str("%0.2f" % (amountExported)))
-                                amountExportedStr = str("%0.2f %s" % (amountExported, pluginGlobal['smappees'][devSolar.id]['currencyCode']))
-                                devSolarExported.updateStateOnServer("dailyTotalExportOnlyIncome", amountExportedReformatted, uiValue=amountExportedStr)
+                                amountExportedReformatted = float(str("%0.2f" % amountExported))
+                                amountExportedStr = str("%0.2f %s" % (
+                                    amountExported, self.globals['smappees'][devSolar.id]['currencyCode']))
+                                devSolarExported.updateStateOnServer("dailyTotalExportOnlyIncome",
+                                                                     amountExportedReformatted,
+                                                                     uiValue=amountExportedStr)
 
-                            pluginGlobal['smappees'][devSolarExported.id]['lastReadingSolarExportedUtc'] = self.timestampUtc
+                            self.globals['smappees'][devSolarExported.id][
+                                'lastReadingSolarExportedUtc'] = self.timestampUtc
 
                     elif key == 'error':
-                        autolog(ERROR, u"SMAPPEE ERROR DETECTED [%s]: %s" % (commandSentToSmappee, value))
+                        self.generalLogger.error(u"SMAPPEE ERROR DETECTED [%s]: %s" % (commandSentToSmappee, value))
                     else:
                         pass  # Unknown key/value pair
-                        autolog(DETAIL, u"Unhandled key/value pair : K=[%s], V=[%s]" % (key, value))
+                        self.generalLogger.debug(u"Unhandled key/value pair : K=[%s], V=[%s]" % (key, value))
 
         except StandardError, e:
-            autolog(ERROR, u"StandardError detected in 'handleGetConsumption'. Line '%s' has error='%s'" % (sys.exc_traceback.tb_lineno, e))   
-            autolog(ERROR, u"Decoded response from Smappee was:'%s'" % (decodedSmappeeResponse))
-
+            self.generalLogger.error(u"StandardError detected in 'handleGetConsumption'. Line '%s' has error='%s'" % (
+                sys.exc_traceback.tb_lineno, e))
+            self.generalLogger.error(u"Decoded response from Smappee was:'%s'" % decodedSmappeeResponse)
 
     def handleGetSensorConsumption(self, commandSentToSmappee, responseLocationId, decodedSmappeeResponse):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace())) 
+        self.methodTracer.threaddebug(u"CLASS: Plugin")
 
         # return  # TEMP FIX
 
-        autolog(DETAIL, u"handleGetSensorConsumption [AC-FIXED] - Decoded Response to '%s' = [%s] %s" % (commandSentToSmappee, responseLocationId, decodedSmappeeResponse))
+        self.generalLogger.debug(u"handleGetSensorConsumption [AC-FIXED] - Decoded Response to '%s' = [%s] %s" % (
+            commandSentToSmappee, responseLocationId, decodedSmappeeResponse))
 
         try:
 
@@ -3888,31 +3845,35 @@ class Plugin(indigo.PluginBase):
                 for key, value in decoding.iteritems():
                     if key == 'serviceLocationId' or key == 'sensorId' or key == 'records' or key == 'error':
                         if key == 'error':
-                            autolog(DETAIL, u"SMAPPEE SENSOR handleGetSensorConsumption error detected by Smappee: Error=[%s]" % (value))
+                            self.generalLogger.debug(
+                                u"SMAPPEE SENSOR handleGetSensorConsumption error detected by Smappee: Error=[%s]" % (
+                                    value))
                             errorDetected = True
                         # At this point the response (so far) is OK as we know how to process the key
                     else:
-                        autolog(DETAIL, u"SMAPPEE SENSOR Unhandled key/value pair : K=[%s], V=[%s]" % (key, value))
-                if errorDetected == True:
-                    autolog(ERROR, u"SMAPPEE SENSOR handleGetSensorConsumption error - response abandoned!")
+                        self.generalLogger.debug(
+                            u"SMAPPEE SENSOR Unhandled key/value pair : K=[%s], V=[%s]" % (key, value))
+                if errorDetected:
+                    self.generalLogger.error(u"SMAPPEE SENSOR handleGetSensorConsumption error - response abandoned!")
                     break
 
                 for key, value in decoding.iteritems():
                     if key == 'serviceLocationId':
-                        indigo.server
                         sLoc = str(value)  # Service Location
-                        autolog(DETAIL, u"handleGetSensorConsumption [serviceLocationId] - K = [%s], V = %s and sLoc = %s" % (key, value, sLoc))
+                        self.generalLogger.debug(
+                            u"handleGetSensorConsumption [serviceLocationId] - K = [%s], V = %s and sLoc = %s" % (
+                                key, value, sLoc))
                         break
 
                 for key, value in decoding.iteritems():
                     if key == 'sensorId':
                         smappeeType = 'GW'  # Sensor for Gas Water
-                        sId = str("%s%s" % (str(smappeeType), str("00%s" % (value))[-2:]))
-                        autolog(DETAIL, u"handleGetSensorConsumption [sensorId] - sId = [%s]" % (sId))
+                        sId = str("%s%s" % (str(smappeeType), str("00%s" % value)[-2:]))
+                        self.generalLogger.debug(u"handleGetSensorConsumption [sensorId] - sId = [%s]" % sId)
 
                         def checkIndigoDev(serviceLocation, address):
                             try:
-                                # autolog(DETAIL, u"handleGetSensorConsumption [sensorId-checkIndigoDev] - serviceLocation=[%s] %s, Smappee Address=[%s] %s" % (type(serviceLocation), serviceLocation, type(address), address))
+                                # self.generalLogger.debug(u"handleGetSensorConsumption [sensorId-checkIndigoDev] - serviceLocation=[%s] %s, Smappee Address=[%s] %s" % (type(serviceLocation), serviceLocation, type(address), address))
                                 returnedDevId = 0
                                 # lastReadingSensorUtc = time.mktime(indigo.server.getTime().timetuple())  # Make greater than 'now' so that if no device exists - nothing will be processed
                                 lastReadingSensorUtc = 0
@@ -3920,36 +3881,48 @@ class Plugin(indigo.PluginBase):
                                 measurementTimeMultiplier = 1.0
 
                                 for dev in indigo.devices.iter("self"):
-                                    #autolog(DETAIL, u"handleGetSensorConsumption [sensorId-checkIndigoDev] - DN=%s, deviceTypeId=[%s] %s, serviceLocation=[%s] %s, deviceAddress=[%s] %s" % (dev.name, type(dev.deviceTypeId), dev.deviceTypeId, type(dev.pluginProps['serviceLocationId']), dev.pluginProps['serviceLocationId'], type(dev.address), dev.address))
-                                    if (dev.deviceTypeId == "smappeeSensor") and (dev.pluginProps['serviceLocationId'] == serviceLocation) and (dev.address == address):
-                                        autolog(DETAIL, u"handleGetSensorConsumption [sensorId-checkIndigoDev- FOUND] DN = [%s], TYPEID =  [%s], SL=[%s], A=[%s]" % (dev.name, dev.deviceTypeId, dev.pluginProps['serviceLocationId'], dev.address))
+                                    # self.generalLogger.debug(u"handleGetSensorConsumption [sensorId-checkIndigoDev] - DN=%s, deviceTypeId=[%s] %s, serviceLocation=[%s] %s, deviceAddress=[%s] %s" % (dev.name, type(dev.deviceTypeId), dev.deviceTypeId, type(dev.pluginProps['serviceLocationId']), dev.pluginProps['serviceLocationId'], type(dev.address), dev.address))
+                                    if (dev.deviceTypeId == "smappeeSensor") and (
+                                            dev.pluginProps['serviceLocationId'] == serviceLocation) and (
+                                            dev.address == address):
+                                        self.generalLogger.debug(
+                                            u"handleGetSensorConsumption [sensorId-checkIndigoDev- FOUND] DN = [%s], TYPEID =  [%s], SL=[%s], A=[%s]" % (
+                                                dev.name, dev.deviceTypeId, dev.pluginProps['serviceLocationId'],
+                                                dev.address))
                                         returnedDevId = dev.id
-                                        lastReadingSensorUtc = pluginGlobal['smappees'][dev.id]['lastReadingSensorUtc']
-                                        pulsesPerUnit = pluginGlobal['smappees'][dev.id]['lastReadingSensorUtc']
+                                        lastReadingSensorUtc = self.globals['smappees'][dev.id]['lastReadingSensorUtc']
+                                        pulsesPerUnit = self.globals['smappees'][dev.id]['lastReadingSensorUtc']
 
-                                        unitsKey = pluginGlobal['smappees'][dev.id]['units']
-                                        if unitsKey in pluginGlobal['unitTable']:
+                                        unitsKey = self.globals['smappees'][dev.id]['units']
+                                        if unitsKey in self.globals['unitTable']:
                                             pass
                                         else:
                                             unitsKey = 'default'
-                                        measurementTimeMultiplier = pluginGlobal['unitTable'][unitsKey]['measurementTimeMultiplier']
+                                        measurementTimeMultiplier = self.globals['unitTable'][unitsKey][
+                                            'measurementTimeMultiplier']
 
-                                        if dev.states['smappeeSensorOnline'] == False:
+                                        if not dev.states['smappeeSensorOnline']:
                                             dev.updateStateOnServer("smappeeSensorOnline", True, uiValue='online')
 
                                 return returnedDevId, lastReadingSensorUtc, pulsesPerUnit, measurementTimeMultiplier
 
                             except StandardError, e:
-                                autolog(ERROR, u"StandardError detected in 'checkIndigoDev'. Line '%s' has error='%s'" % (sys.exc_traceback.tb_lineno, e))   
+                                self.generalLogger.error(
+                                    u"StandardError detected in 'checkIndigoDev'. Line '%s' has error='%s'" % (
+                                        sys.exc_traceback.tb_lineno, e))
 
                                 return returnedDevId, lastReadingSensorUtc, pulsesPerUnit, measurementTimeMultiplier
 
                         sensorAddress = sId + '-A'
-                        sensorA_DevId, lastReadingSensorA_Utc, pulsesPerUnitSensorA, measurementTimeMultiplierSensorA = checkIndigoDev(sLoc, sensorAddress)
+                        sensorA_DevId, lastReadingSensorA_Utc, pulsesPerUnitSensorA, measurementTimeMultiplierSensorA = checkIndigoDev(
+                            sLoc, sensorAddress)
                         sensorAddress = sId + '-B'
-                        sensorB_DevId, lastReadingSensorB_Utc, pulsesPerUnitSensorB, measurementTimeMultiplierSensorB = checkIndigoDev(sLoc, sensorAddress)
+                        sensorB_DevId, lastReadingSensorB_Utc, pulsesPerUnitSensorB, measurementTimeMultiplierSensorB = checkIndigoDev(
+                            sLoc, sensorAddress)
 
-                        autolog(DETAIL, u"handleGetSensorConsumption [sensorId-checkIndigoDev] - dev.Id [A] = [%s], dev.Id [B] = [%s]" % (sensorA_DevId, sensorB_DevId))
+                        self.generalLogger.debug(
+                            u"handleGetSensorConsumption [sensorId-checkIndigoDev] - dev.Id [A] = [%s], dev.Id [B] = [%s]" % (
+                                sensorA_DevId, sensorB_DevId))
 
                         break
 
@@ -3984,16 +3957,17 @@ class Plugin(indigo.PluginBase):
                         sensorB_Humidity = 0.0
                         sensorB_BatteryLevel = 0.0
 
-                        if pluginGlobal['SQL']['enabled'] == True:
+                        if self.globals['SQL']['enabled']:
                             try:
-                                pluginGlobal['SQL']['connection'] = sql3.connect(pluginGlobal['SQL']['db'])
-                                pluginGlobal['SQL']['cursor'] = pluginGlobal['SQL']['connection'].cursor()
+                                self.globals['SQL']['connection'] = sql3.connect(self.globals['SQL']['db'])
+                                self.globals['SQL']['cursor'] = self.globals['SQL']['connection'].cursor()
                             except sql3.Error, e:
-                                if pluginGlobal['SQL']['connection']:
-                                    pluginGlobal['SQL']['connection'].rollback()
-                                autolog(ERROR, u"SMAPPEE ERROR DETECTED WITH SQL [SENSOR] CONNECTION: %s" % (e.args[0]))
+                                if self.globals['SQL']['connection']:
+                                    self.globals['SQL']['connection'].rollback()
+                                self.generalLogger.error(
+                                    u"SMAPPEE ERROR DETECTED WITH SQL [SENSOR] CONNECTION: %s" % (e.args[0]))
 
-                                pluginGlobal['SQL']['enabled'] = False  # Disable SQL processing
+                                self.globals['SQL']['enabled'] = False  # Disable SQL processing
 
                         for self.sensorReading in value:
                             timestampUtc = 0
@@ -4006,15 +3980,14 @@ class Plugin(indigo.PluginBase):
                             sensorA_Last = 0.0
                             sensorB_Last = 0.0
 
-
-
                             readingSensorA_Detected = False
                             readingSensorB_Detected = False
 
-                            autolog(DETAIL, u"handleGetSensorConsumption [Q][SENSOR] -  [START ...]")
+                            self.generalLogger.debug(u"handleGetSensorConsumption [Q][SENSOR] -  [START ...]")
 
                             for readingKey, readingValue in self.sensorReading.iteritems():
-                                autolog(DETAIL, u"handleGetSensorConsumption [Q][SENSOR] -  [%s : %s]" % (readingKey, readingValue))
+                                self.generalLogger.debug(
+                                    u"handleGetSensorConsumption [Q][SENSOR] -  [%s : %s]" % (readingKey, readingValue))
                                 if readingKey == 'timestamp':
                                     timestampUtc = readingValue
                                     timestampUtcLast = readingValue
@@ -4034,10 +4007,12 @@ class Plugin(indigo.PluginBase):
                                     batteryLevel = readingValue
                                 else:
                                     pass  # Unknown key/value pair
-                            autolog(DETAIL, u"handleGetSensorConsumption [Q][SENSOR] -  [... END: TS=%s, V1=%s, V2=%s, TEMP=%s, HUM=%s, BAT=%s]" % (timestampUtc, value1, value2, temperature, humidity, batteryLevel))
+                            self.generalLogger.debug(
+                                u"handleGetSensorConsumption [Q][SENSOR] -  [... END: TS=%s, V1=%s, V2=%s, TEMP=%s, HUM=%s, BAT=%s]" % (
+                                    timestampUtc, value1, value2, temperature, humidity, batteryLevel))
 
                             if timestampUtc != 0:
-                                if sensorA_DevId != 0: 
+                                if sensorA_DevId != 0:
 
                                     sensorA_Temperature = temperature
                                     sensorA_Humidity = humidity
@@ -4054,10 +4029,10 @@ class Plugin(indigo.PluginBase):
 
                                     elif timestampUtc == lastReadingSensorA_Utc:
                                         sensorA_Previous = 0.0
-                                        if readingSensorA_Detected == True:
+                                        if readingSensorA_Detected:
                                             sensorA_Previous = value1 * measurementTimeMultiplierSensorA
 
-                                if sensorB_DevId != 0: 
+                                if sensorB_DevId != 0:
                                     sensorB_Temperature = temperature
                                     sensorB_Humidity = humidity
                                     sensorB_BatteryLevel = batteryLevel
@@ -4073,73 +4048,82 @@ class Plugin(indigo.PluginBase):
 
                                     elif timestampUtc == lastReadingSensorB_Utc:
                                         sensorB_Previous = 0.0
-                                        if readingSensorB_Detected == True:
+                                        if readingSensorB_Detected:
                                             sensorB_Previous = value1 * measurementTimeMultiplierSensorB
 
-                                autolog(DETAIL, u"handleGetSensorConsumption [Q][SENSOR] -  [... SQL: TS=%s, V1=%s, V2=%s, TEMP=%s, HUM=%s, BAT=%s]" % (timestampUtc, value1, value2, temperature, humidity, batteryLevel))
+                                self.generalLogger.debug(
+                                    u"handleGetSensorConsumption [Q][SENSOR] -  [... SQL: TS=%s, V1=%s, V2=%s, TEMP=%s, HUM=%s, BAT=%s]" % (
+                                        timestampUtc, value1, value2, temperature, humidity, batteryLevel))
 
-                                if pluginGlobal['SQL']['enabled'] == True:
+                                if self.globals['SQL']['enabled']:
 
                                     try:
                                         insertSql = 'NO SQL SET-UP YET'
                                         readingTime = str(int(timestampUtc / 1000))  # Remove micro seconds
-                                        readingYYYYMMDDHHMMSS = datetime.datetime.fromtimestamp(int(readingTime)).strftime('%Y-%m-%d %H:%M:%S')
+                                        readingYYYYMMDDHHMMSS = datetime.datetime.fromtimestamp(
+                                            int(readingTime)).strftime('%Y-%m-%d %H:%M:%S')
                                         readingYYYYMMDD = readingYYYYMMDDHHMMSS[0:10]
                                         readingHHMMSS = readingYYYYMMDDHHMMSS[-8:]
-                                        sensor1     = str(int(value1))
-                                        sensor2     = str(int(value2))
-                                        humidity    = str(int(humidity * 10))
+                                        sensor1 = str(int(value1))
+                                        sensor2 = str(int(value2))
+                                        humidity = str(int(humidity * 10))
                                         temperature = str(int(temperature * 10))
-                                        battery     = str(int(batteryLevel * 10))
+                                        battery = str(int(batteryLevel * 10))
 
-                                        autolog(DETAIL, u"handleGetSensorConsumption [Q][SENSOR] -  [... INS: RT=%s, YYYYMMDD=%s, HHMMSS=%s, V1=%s, V2=%s, TEMP=%s, HUM=%s, BAT=%s]" % (readingTime, readingYYYYMMDDHHMMSS, readingHHMMSS, sensor1, sensor2, temperature, humidity, battery))
-                                        
+                                        self.generalLogger.debug(
+                                            u"handleGetSensorConsumption [Q][SENSOR] -  [... INS: RT=%s, YYYYMMDD=%s, HHMMSS=%s, V1=%s, V2=%s, TEMP=%s, HUM=%s, BAT=%s]" % (
+                                                readingTime, readingYYYYMMDDHHMMSS, readingHHMMSS, sensor1, sensor2,
+                                                temperature, humidity, battery))
+
                                         insertSql = """
                                             INSERT OR REPLACE INTO sensor_readings (reading_time, reading_YYYYMMDD, reading_HHMMSS, sensor1, sensor2, humidity, temperature, battery)
                                             VALUES (%s, '%s', '%s', %s, %s, %s, %s, %s);
-                                            """ % (readingTime, readingYYYYMMDD, readingHHMMSS, sensor1, sensor2, humidity, temperature, battery)
-                                        pluginGlobal['SQL']['cursor'].executescript(insertSql)
+                                            """ % (
+                                            readingTime, readingYYYYMMDD, readingHHMMSS, sensor1, sensor2, humidity,
+                                            temperature, battery)
+                                        self.globals['SQL']['cursor'].executescript(insertSql)
                                     except sql3.Error, e:
-                                        if pluginGlobal['SQL']['connection']:
-                                            pluginGlobal['SQL']['connection'].rollback()
-                                        autolog(ERROR, u"SMAPPEE ERROR DETECTED WITH SQL [SENSOR] INSERT: %s, SQL=[%s]" % (e.args[0], insertSql))
-                                        if pluginGlobal['SQL']['connection']:
-                                            pluginGlobal['SQL']['connection'].close()  
+                                        if self.globals['SQL']['connection']:
+                                            self.globals['SQL']['connection'].rollback()
+                                        self.generalLogger.error(
+                                            u"SMAPPEE ERROR DETECTED WITH SQL [SENSOR] INSERT: %s, SQL=[%s]" % (
+                                                e.args[0], insertSql))
+                                        if self.globals['SQL']['connection']:
+                                            self.globals['SQL']['connection'].close()
 
-                                        pluginGlobal['SQL']['enabled'] = False  # Disable SQL processing
+                                        self.globals['SQL']['enabled'] = False  # Disable SQL processing
 
-
-                        if pluginGlobal['SQL']['enabled'] == True:
+                        if self.globals['SQL']['enabled']:
                             try:
-                                pluginGlobal['SQL']['connection'].commit()
+                                self.globals['SQL']['connection'].commit()
                             except sql3.Error, e:
-                                if pluginGlobal['SQL']['connection']:
-                                    pluginGlobal['SQL']['connection'].rollback()
-                                autolog(ERROR, u"SMAPPEE ERROR DETECTED WITH SQL [SENSOR] COMMIT: %s" % (e.args[0]))
+                                if self.globals['SQL']['connection']:
+                                    self.globals['SQL']['connection'].rollback()
+                                self.generalLogger.error(
+                                    u"SMAPPEE ERROR DETECTED WITH SQL [SENSOR] COMMIT: %s" % (e.args[0]))
 
-                                pluginGlobal['SQL']['enabled'] = False  # Disable SQL processing
+                                self.globals['SQL']['enabled'] = False  # Disable SQL processing
                             finally:
-                                if pluginGlobal['SQL']['connection']:
-                                    pluginGlobal['SQL']['connection'].close()  
+                                if self.globals['SQL']['connection']:
+                                    self.globals['SQL']['connection'].close()
 
-
-
-
-
-
-                        # reading 'records' entries processing complete 
+                                    # reading 'records' entries processing complete
 
                         if sensorA_NumberOfValues > 0:
                             sensorA_MeanAverage = sensorA_Total / sensorA_NumberOfValues
 
-                        autolog(DETAIL, u"READINGS - SENSOR [A]: N=[%s], T=[%s], MEAN=[%s], MIN=[%s], MAX=[%s], L=[%s]" \
-                            % (sensorA_NumberOfValues, sensorA_Total, sensorA_MeanAverage, sensorA_Minimum, sensorA_Maximum, sensorA_Last))
+                        self.generalLogger.debug(
+                            u"READINGS - SENSOR [A]: N=[%s], T=[%s], MEAN=[%s], MIN=[%s], MAX=[%s], L=[%s]"
+                            % (sensorA_NumberOfValues, sensorA_Total, sensorA_MeanAverage, sensorA_Minimum,
+                               sensorA_Maximum, sensorA_Last))
 
                         if sensorB_NumberOfValues > 0:
                             sensorB_MeanAverage = sensorB_Total / sensorB_NumberOfValues
 
-                        autolog(DETAIL, u"READINGS - SENSOR [B]: N=[%s], T=[%s], MEAN=[%s], MIN=[%s], MAX=[%s], L=[%s]" \
-                            % (sensorB_NumberOfValues, sensorB_Total, sensorB_MeanAverage, sensorB_Minimum, sensorB_Maximum, sensorB_Last))
+                        self.generalLogger.debug(
+                            u"READINGS - SENSOR [B]: N=[%s], T=[%s], MEAN=[%s], MIN=[%s], MAX=[%s], L=[%s]"
+                            % (sensorB_NumberOfValues, sensorB_Total, sensorB_MeanAverage, sensorB_Minimum,
+                               sensorB_Maximum, sensorB_Last))
 
                         def updateSensor(sensorDev, sensorDesc, sensorValues):
 
@@ -4153,178 +4137,229 @@ class Plugin(indigo.PluginBase):
                                 # <Option value="litres">Litres</Option>
                                 # <Option value="gallons">Gallons</Option>
 
-
                                 timestampUtcLast, lastReadingUtc, sensorTemperature, sensorHumidity, sensorBatteryLevel, sensorTotal, sensorNumberOfValues, sensorMeanAverage, sensorMinimum, sensorMaximum, sensorPrevious, sensorLast = sensorValues
 
-                                autolog(DETAIL, u"UpdateSensor [1 of 2] [%s]: Temp=%s, Humidity=%s, Battery=%s" % (sensorDesc, sensorTemperature, sensorHumidity, sensorBatteryLevel))
-                                autolog(DETAIL, u"UpdateSensor [2 of 2] [%s]: Total=%s, NoV=%s, Mean=%s, Min=%s, Max=%s, Prev=%s, Last=%s" % (sensorDesc, str(sensorTotal), str(sensorNumberOfValues), str(sensorMeanAverage), str(sensorMinimum), str(sensorMaximum), str(sensorPrevious), str(sensorLast)))
+                                self.generalLogger.debug(
+                                    u"UpdateSensor [1 of 2] [%s]: Temp=%s, Humidity=%s, Battery=%s" % (
+                                        sensorDesc, sensorTemperature, sensorHumidity, sensorBatteryLevel))
+                                self.generalLogger.debug(
+                                    u"UpdateSensor [2 of 2] [%s]: Total=%s, NoV=%s, Mean=%s, Min=%s, Max=%s, Prev=%s, Last=%s" % (
+                                        sensorDesc, str(sensorTotal), str(sensorNumberOfValues), str(sensorMeanAverage),
+                                        str(sensorMinimum), str(sensorMaximum), str(sensorPrevious), str(sensorLast)))
 
-                                if (sensorNumberOfValues == 0) and ("curEnergyLevel" in sensorDev.states) and (sensorDev.states['curEnergyLevel'] == 0.0):
-                                    autolog(DETAIL, u"UpdateSensor [RETURNING, NO UPDATE] [%s]" % (sensorDesc))
+                                if (sensorNumberOfValues == 0) and ("curEnergyLevel" in sensorDev.states) and (
+                                        sensorDev.states['curEnergyLevel'] == 0.0):
+                                    self.generalLogger.debug(u"UpdateSensor [RETURNING, NO UPDATE] [%s]" % sensorDesc)
 
                                     return  # Don't update energy totals if no values to process i.e nothing received since last timestamp
 
-                                updateTimeString = datetime.datetime.fromtimestamp(int(timestampUtcLast / 1000)).strftime('%Y-%b-%d %H:%M')
+                                updateTimeString = datetime.datetime.fromtimestamp(
+                                    int(timestampUtcLast / 1000)).strftime('%Y-%b-%d %H:%M')
 
                                 if "readingsLastUpdated" in sensorDev.states:
                                     sensorDev.updateStateOnServer("readingsLastUpdated", updateTimeString)
 
-                                if sensorTemperature != pluginGlobal['smappees'][sensorDev.id]['temperature']:
+                                if sensorTemperature != self.globals['smappees'][sensorDev.id]['temperature']:
                                     if "temperature" in sensorDev.states:
-                                        pluginGlobal['smappees'][sensorDev.id]['temperature'] = float(sensorTemperature)
-                                        temperatureStr = "%1.0f deg C" % (float(sensorTemperature)/10)
-                                        temperatureReformatted = float("%0.1f" % (float(sensorTemperature)/10))
-                                        sensorDev.updateStateOnServer("temperature", temperatureReformatted, uiValue=temperatureStr)
+                                        self.globals['smappees'][sensorDev.id]['temperature'] = float(sensorTemperature)
+                                        temperatureStr = "%1.0f deg C" % (float(sensorTemperature) / 10)
+                                        temperatureReformatted = float("%0.1f" % (float(sensorTemperature) / 10))
+                                        sensorDev.updateStateOnServer("temperature", temperatureReformatted,
+                                                                      uiValue=temperatureStr)
 
                                         if "temperatureLastUpdated" in sensorDev.states:
                                             sensorDev.updateStateOnServer("temperatureLastUpdated", updateTimeString)
 
-                                if sensorHumidity != pluginGlobal['smappees'][sensorDev.id]['humidity']:
+                                if sensorHumidity != self.globals['smappees'][sensorDev.id]['humidity']:
                                     if "humidity" in sensorDev.states:
-                                        pluginGlobal['smappees'][sensorDev.id]['humidity'] = float(sensorHumidity)
+                                        self.globals['smappees'][sensorDev.id]['humidity'] = float(sensorHumidity)
                                         humidityStr = "%1.0f%%" % (float(sensorHumidity))
                                         humidityReformatted = float("%0.1f" % (float(sensorHumidity)))
-                                        sensorDev.updateStateOnServer("humidity", humidityReformatted, uiValue=humidityStr)
- 
+                                        sensorDev.updateStateOnServer("humidity", humidityReformatted,
+                                                                      uiValue=humidityStr)
+
                                         if "humidityLastUpdated" in sensorDev.states:
-                                             sensorDev.updateStateOnServer("humidityLastUpdated", updateTimeString)
- 
-                                if sensorBatteryLevel != pluginGlobal['smappees'][sensorDev.id]['batteryLevel']:
+                                            sensorDev.updateStateOnServer("humidityLastUpdated", updateTimeString)
+
+                                if sensorBatteryLevel != self.globals['smappees'][sensorDev.id]['batteryLevel']:
                                     if "batteryLevel" in sensorDev.states:
-                                        pluginGlobal['smappees'][sensorDev.id]['batteryLevel'] = float(sensorBatteryLevel)
+                                        self.globals['smappees'][sensorDev.id]['batteryLevel'] = float(
+                                            sensorBatteryLevel)
                                         batteryLevelStr = "%1.0f%%" % (float(sensorBatteryLevel))
                                         batteryLevelReformatted = float("%0.1f" % (float(sensorBatteryLevel)))
-                                        sensorDev.updateStateOnServer("batteryLevel", batteryLevelReformatted, uiValue=batteryLevelStr)
-  
+                                        sensorDev.updateStateOnServer("batteryLevel", batteryLevelReformatted,
+                                                                      uiValue=batteryLevelStr)
+
                                         if "batteryLevelLastUpdated" in sensorDev.states:
                                             sensorDev.updateStateOnServer("batteryLevelLastUpdated", updateTimeString)
 
-                                unitsKey = pluginGlobal['smappees'][sensorDev.id]['units']
-                                if unitsKey in pluginGlobal['unitTable']:
+                                unitsKey = self.globals['smappees'][sensorDev.id]['units']
+                                if unitsKey in self.globals['unitTable']:
                                     pass
                                 else:
                                     unitsKey = 'default'
 
-                                unitsCurrentUnits = pluginGlobal['unitTable'][unitsKey]['currentUnits'] 
-                                unitsAccumUnits = pluginGlobal['unitTable'][unitsKey]['accumUnits'] 
-                                unitsmeasurementTimeMultiplier = pluginGlobal['unitTable'][unitsKey]['measurementTimeMultiplier']
-                                unitsformatTotaldivisor = pluginGlobal['unitTable'][unitsKey]['formatTotaldivisor']
-                                unitsformatCurrent = pluginGlobal['unitTable'][unitsKey]['formatCurrent']
+                                unitsCurrentUnits = self.globals['unitTable'][unitsKey]['currentUnits']
+                                unitsAccumUnits = self.globals['unitTable'][unitsKey]['accumUnits']
+                                unitsmeasurementTimeMultiplier = self.globals['unitTable'][unitsKey][
+                                    'measurementTimeMultiplier']
+                                unitsformatTotaldivisor = self.globals['unitTable'][unitsKey]['formatTotaldivisor']
+                                unitsformatCurrent = self.globals['unitTable'][unitsKey]['formatCurrent']
                                 unitsformatCurrentUi = unitsformatCurrent + u' ' + unitsCurrentUnits
-                                unitsformatTotal = pluginGlobal['unitTable'][unitsKey]['formatTotal']
+                                unitsformatTotal = self.globals['unitTable'][unitsKey]['formatTotal']
                                 unitsformatTotalUi = unitsformatTotal + ' ' + unitsAccumUnits
-
 
                                 if "curEnergyLevel" in sensorDev.states:
                                     if commandSentToSmappee == 'RESET_SENSOR_CONSUMPTION':
-                                        pluginGlobal['smappees'][sensorDev.id]['curEnergyLevel'] = 0.0
-                                        dataToUpdateStr = str(unitsformatCurrent + " %s" % (pluginGlobal['smappees'][sensorDev.id]['curEnergyLevel'], unitsCurrentUnits))
-                                        sensorDev.updateStateOnServer("curEnergyLevel", pluginGlobal['smappees'][sensorDev.id]['curEnergyLevel'], uiValue=dataToUpdateStr)
+                                        self.globals['smappees'][sensorDev.id]['curEnergyLevel'] = 0.0
+                                        dataToUpdateStr = str(unitsformatCurrent + " %s %s" % (
+                                            self.globals['smappees'][sensorDev.id]['curEnergyLevel'],
+                                            unitsCurrentUnits))
+                                        sensorDev.updateStateOnServer("curEnergyLevel",
+                                                                      self.globals['smappees'][sensorDev.id][
+                                                                          'curEnergyLevel'], uiValue=dataToUpdateStr)
                                         if float(indigo.server.apiVersion) >= 1.18:
                                             sensorDev.updateStateImageOnServer(indigo.kStateImageSel.EnergyMeterOff)
 
-                                    readingOption = sensorDev.pluginProps['optionsEnergyMeterCurPower']  # mean, minimum, maximum, last
+                                    readingOption = sensorDev.pluginProps[
+                                        'optionsEnergyMeterCurPower']  # mean, minimum, maximum, last
 
                                     dataToUpdate = 0.0
                                     if readingOption == 'mean':  # mean, minimum, maximum, last
                                         if sensorNumberOfValues > 0:
                                             dataToUpdate = (sensorMeanAverage * 60) / 5
                                         else:
-                                            autolog(DETAIL, u"SENSOR %s: [MEAN] CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (sensorDesc, sensorLast, timestampUtcLast, lastReadingUtc, (lastReadingUtc - 600000)))
-                                            if sensorLast > 0.0 and timestampUtcLast != 0 and timestampUtcLast > (lastReadingUtc - 600000):
+                                            self.generalLogger.debug(
+                                                u"SENSOR %s: [MEAN] CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                                    sensorDesc, sensorLast, timestampUtcLast, lastReadingUtc,
+                                                    (lastReadingUtc - 600000)))
+                                            if sensorLast > 0.0 and timestampUtcLast != 0 and timestampUtcLast > (
+                                                    lastReadingUtc - 600000):
                                                 dataToUpdate = sensorLast * unitsmeasurementTimeMultiplier
                                     elif readingOption == 'minimum':
                                         if sensorNumberOfValues > 0:
                                             dataToUpdate = sensorMinimum * unitsmeasurementTimeMultiplier
                                         else:
-                                            autolog(DETAIL, u"SENSOR %s: [MINIMUM] CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (sensorDesc, sensorLast, timestampUtcLast, lastReadingUtc, (lastReadingUtc - 600000)))
-                                            if sensorLast > 0.0 and timestampUtcLast != 0 and timestampUtcLast > (lastReadingUtc - 600000):
+                                            self.generalLogger.debug(
+                                                u"SENSOR %s: [MINIMUM] CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                                    sensorDesc, sensorLast, timestampUtcLast, lastReadingUtc,
+                                                    (lastReadingUtc - 600000)))
+                                            if sensorLast > 0.0 and timestampUtcLast != 0 and timestampUtcLast > (
+                                                    lastReadingUtc - 600000):
                                                 dataToUpdate = sensorLast * unitsmeasurementTimeMultiplier
                                     elif readingOption == 'maximum':
                                         if sensorNumberOfValues > 0:
                                             watts = sensorMaximum * unitsmeasurementTimeMultiplier
                                         else:
-                                            autolog(DETAIL, u"SENSOR %s: [MAXIMUM] CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (sensorDesc, sensorLast, timestampUtcLast, lastReadingUtc, (lastReadingUtc - 600000)))
-                                            if sensorLast > 0.0 and timestampUtcLast != 0 and timestampUtcLast > (lastReadingUtc - 600000):
+                                            self.generalLogger.debug(
+                                                u"SENSOR %s: [MAXIMUM] CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                                    sensorDesc, sensorLast, timestampUtcLast, lastReadingUtc,
+                                                    (lastReadingUtc - 600000)))
+                                            if sensorLast > 0.0 and timestampUtcLast != 0 and timestampUtcLast > (
+                                                    lastReadingUtc - 600000):
                                                 dataToUpdate = sensorLast * unitsmeasurementTimeMultiplier
                                     else:  # Assume last
-                                        autolog(DETAIL, u"SENSOR %s: [LAST] CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (sensorDesc, sensorLast, str(timestampUtcLast), str(lastReadingUtc), (str(lastReadingUtc - 600000))))
-                                        if sensorLast > 0.0 and timestampUtcLast != 0 and timestampUtcLast > (lastReadingUtc - 600000):
+                                        self.generalLogger.debug(
+                                            u"SENSOR %s: [LAST] CL=[%s], UTCL=[%s], LRUTC=[%s], LRUTC600=[%s]" % (
+                                                sensorDesc, sensorLast, str(timestampUtcLast), str(lastReadingUtc),
+                                                (str(lastReadingUtc - 600000))))
+                                        if sensorLast > 0.0 and timestampUtcLast != 0 and timestampUtcLast > (
+                                                lastReadingUtc - 600000):
                                             dataToUpdate = sensorLast * unitsmeasurementTimeMultiplier
 
                                     currentTimeUtc = int(time.mktime(indigo.server.getTime().timetuple()))
-                                    currentTimeMinus6MinsUtc =  int((currentTimeUtc - 360) * 1000)  # Subtract 5 minutes (360 seconds)
+                                    currentTimeMinus6MinsUtc = int(
+                                        (currentTimeUtc - 360) * 1000)  # Subtract 5 minutes (360 seconds)
 
-                                    autolog(DETAIL, u"SENSOR %s: [TIME CHECK] currentTimeUtc=[%s], currentTimeMinus6MinsUtc=[%s], timestampUtcLast=[%s]" % (sensorDesc, currentTimeUtc, currentTimeMinus6MinsUtc, timestampUtcLast))
+                                    self.generalLogger.debug(
+                                        u"SENSOR %s: [TIME CHECK] currentTimeUtc=[%s], currentTimeMinus6MinsUtc=[%s], timestampUtcLast=[%s]" % (
+                                            sensorDesc, currentTimeUtc, currentTimeMinus6MinsUtc, timestampUtcLast))
                                     if timestampUtcLast < currentTimeMinus6MinsUtc:
-                                        dataToUpdate == 0.0
+                                        dataToUpdate = 0.0
 
                                     dataToUpdateStr = u"%d %s" % (dataToUpdate, unitsCurrentUnits)
-                                    if not pluginGlobal['smappees'][sensorDev.id]['hideEnergyMeterCurPower']:
-                                        autolog(INFO, "received '%s' power load reading: %s" % (sensorDev.name, dataToUpdateStr))
+                                    if not self.globals['smappees'][sensorDev.id]['hideEnergyMeterCurPower']:
+                                        self.generalLogger.info(
+                                            u"received '%s' power load reading: %s" % (sensorDev.name, dataToUpdateStr))
 
-                                    sensorDev.updateStateOnServer("curEnergyLevel", dataToUpdate, uiValue=dataToUpdateStr)
+                                    sensorDev.updateStateOnServer("curEnergyLevel", dataToUpdate,
+                                                                  uiValue=dataToUpdateStr)
                                     if float(indigo.server.apiVersion) >= 1.18:
                                         sensorDev.updateStateImageOnServer(indigo.kStateImageSel.EnergyMeterOn)
 
                                 if sensorNumberOfValues != 0 and "accumEnergyTotal" in sensorDev.states:
 
                                     if commandSentToSmappee == 'RESET_SENSOR_CONSUMPTION':
-                                        pluginGlobal['smappees'][sensorDev.id]['accumEnergyTotal'] = 0.0
-                                        dataToUpdateStr = str(unitsformatTotalUi % (pluginGlobal['smappees'][sensorDev.id]['accumEnergyTotal']))
-                                        sensorDev.updateStateOnServer("accumEnergyTotal", pluginGlobal['smappees'][sensorDev.id]['accumEnergyTotal'], uiValue=dataToUpdateStr)
+                                        self.globals['smappees'][sensorDev.id]['accumEnergyTotal'] = 0.0
+                                        dataToUpdateStr = str(unitsformatTotalUi % (
+                                            self.globals['smappees'][sensorDev.id]['accumEnergyTotal']))
+                                        sensorDev.updateStateOnServer("accumEnergyTotal",
+                                                                      self.globals['smappees'][sensorDev.id][
+                                                                          'accumEnergyTotal'], uiValue=dataToUpdateStr)
 
                                     dataToUpdate = float(sensorDev.states.get("accumEnergyTotal", 0))
                                     dataToUpdate += float(sensorTotal / unitsformatTotaldivisor)
-                                    dataToUpdateStr = str(unitsformatTotalUi % (dataToUpdate))
-                                    dataToUpdateReformatted = str(unitsformatTotal % (dataToUpdate))
-                                    sensorDev.updateStateOnServer("accumEnergyTotal", dataToUpdateReformatted, uiValue=dataToUpdateStr)
+                                    dataToUpdateStr = str(unitsformatTotalUi % dataToUpdate)
+                                    dataToUpdateReformatted = str(unitsformatTotal % dataToUpdate)
+                                    sensorDev.updateStateOnServer("accumEnergyTotal", dataToUpdateReformatted,
+                                                                  uiValue=dataToUpdateStr)
 
-                                    dataUnitCost = pluginGlobal['smappees'][sensorDev.id]['unitCost']
-                                    dailyStandingCharge = pluginGlobal['smappees'][sensorDev.id]['dailyStandingCharge']
+                                    dataUnitCost = self.globals['smappees'][sensorDev.id]['unitCost']
+                                    dailyStandingCharge = self.globals['smappees'][sensorDev.id]['dailyStandingCharge']
                                     amountGross = 0.00
                                     if dataUnitCost > 0.00:
                                         amountGross = (dailyStandingCharge + (dataToUpdate * dataUnitCost))
-                                        amountGrossReformatted = float(str("%0.2f" % (amountGross)))
-                                        amountGrossStr = str("%0.2f %s" % (amountGrossReformatted, pluginGlobal['smappees'][sensorDev.id]['currencyCode']))
-                                        sensorDev.updateStateOnServer("dailyTotalCost", amountGrossReformatted, uiValue=amountGrossStr)
+                                        amountGrossReformatted = float(str("%0.2f" % amountGross))
+                                        amountGrossStr = str("%0.2f %s" % (
+                                            amountGrossReformatted,
+                                            self.globals['smappees'][sensorDev.id]['currencyCode']))
+                                        sensorDev.updateStateOnServer("dailyTotalCost", amountGrossReformatted,
+                                                                      uiValue=amountGrossStr)
 
-                                    if not pluginGlobal['smappees'][sensorDev.id]['hideEnergyMeterAccumPower']:
-                                        if dataUnitCost == 0.00 or pluginGlobal['smappees'][sensorDev.id]['hideEnergyMeterAccumPowerCost'] == True:
-                                            autolog(INFO, u"received '%s' energy total: %s" % (sensorDev.name, dataToUpdateStr))
+                                    if not self.globals['smappees'][sensorDev.id]['hideEnergyMeterAccumPower']:
+                                        if dataUnitCost == 0.00 or self.globals['smappees'][sensorDev.id][
+                                                'hideEnergyMeterAccumPowerCost']:
+                                            self.generalLogger.info(
+                                                u"received '%s' energy total: %s" % (sensorDev.name, dataToUpdateStr))
                                         else:
-                                            autolog(INFO, u"received '%s' energy total: %s (Gross %s)" % (sensorDev.name, dataToUpdateStr, amountGrossStr))
+                                            self.generalLogger.info(u"received '%s' energy total: %s (Gross %s)" % (
+                                                sensorDev.name, dataToUpdateStr, amountGrossStr))
 
-
-
-                                pluginGlobal['smappees'][sensorDev.id]['lastReadingSensorUtc'] = timestampUtc
+                                self.globals['smappees'][sensorDev.id]['lastReadingSensorUtc'] = timestampUtc
 
                             except StandardError, e:
-                                autolog(ERROR, u"StandardError detected in 'updateSensor'. Line '%s' has error='%s'" % (sys.exc_traceback.tb_lineno, e))   
+                                self.generalLogger.error(
+                                    u"StandardError detected in 'updateSensor'. Line '%s' has error='%s'" % (
+                                        sys.exc_traceback.tb_lineno, e))
 
                         if sensorA_DevId != 0:
                             sensorA_Dev = indigo.devices[sensorA_DevId]
-                            sensorValues = (timestampUtcLast, lastReadingSensorA_Utc, sensorA_Temperature, sensorA_Humidity, sensorA_BatteryLevel, sensorA_Total, sensorA_NumberOfValues, sensorA_MeanAverage, sensorA_Minimum, sensorA_Maximum, sensorA_Previous, sensorA_Last)
+                            sensorValues = (
+                                timestampUtcLast, lastReadingSensorA_Utc, sensorA_Temperature, sensorA_Humidity,
+                                sensorA_BatteryLevel, sensorA_Total, sensorA_NumberOfValues, sensorA_MeanAverage,
+                                sensorA_Minimum, sensorA_Maximum, sensorA_Previous, sensorA_Last)
                             updateSensor(sensorA_Dev, 'A', sensorValues)
 
                         if sensorB_DevId != 0:
                             sensorB_Dev = indigo.devices[sensorB_DevId]
-                            sensorValues = (timestampUtcLast, lastReadingSensorB_Utc, sensorB_Temperature, sensorB_Humidity, sensorB_BatteryLevel, sensorB_Total, sensorB_NumberOfValues, sensorB_MeanAverage, sensorB_Minimum, sensorB_Maximum, sensorB_Previous, sensorB_Last)
+                            sensorValues = (
+                                timestampUtcLast, lastReadingSensorB_Utc, sensorB_Temperature, sensorB_Humidity,
+                                sensorB_BatteryLevel, sensorB_Total, sensorB_NumberOfValues, sensorB_MeanAverage,
+                                sensorB_Minimum, sensorB_Maximum, sensorB_Previous, sensorB_Last)
                             updateSensor(sensorB_Dev, 'B', sensorValues)
 
                         break
 
         except StandardError, e:
-            autolog(ERROR, u"StandardError detected in 'handleGetSensorConsumption'. Line '%s' has error='%s'" % (sys.exc_traceback.tb_lineno, e))   
-            autolog(ERROR, u"Decoded response from Smappee was:'%s'" % (decodedSmappeeResponse))
-
+            self.generalLogger.error(
+                u"StandardError detected in 'handleGetSensorConsumption'. Line '%s' has error='%s'" % (
+                    sys.exc_traceback.tb_lineno, e))
+            self.generalLogger.error(u"Decoded response from Smappee was:'%s'" % decodedSmappeeResponse)
 
     def handleSmappeeResponse(self, commandSentToSmappee, responseLocationId, responseFromSmappee):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: Plugin")
 
         # This thread handles responses from Smappee to commands sent to Smappee
-
 
         self.currentTime = indigo.server.getTime()
 
@@ -4343,12 +4378,13 @@ class Plugin(indigo.PluginBase):
                 self.handleCreateNewActuator(commandSentToSmappee, responseLocationId, responseFromSmappee)
                 return
 
-
             # Now do some basic validation on the Smappee response and decode it
 
-            validSmappeeResponse, decodedSmappeeResponse = self.validateSmappeResponse(commandSentToSmappee, responseLocationId, responseFromSmappee)
-            if validSmappeeResponse == False:
-                # Response recieved from Smappee is invalid
+            validSmappeeResponse, decodedSmappeeResponse = self.validateSmappeResponse(commandSentToSmappee,
+                                                                                       responseLocationId,
+                                                                                       responseFromSmappee)
+            if not validSmappeeResponse:
+                # Response received from Smappee is invalid
                 return
 
             # At this point we have a decoded response
@@ -4376,169 +4412,242 @@ class Plugin(indigo.PluginBase):
                 self.handleGetSensorConsumption(commandSentToSmappee, responseLocationId, decodedSmappeeResponse)
                 return
 
-
-
         except StandardError, e:
-            autolog(ERROR, u"StandardError detected in 'handleSmappeeResponse'. Line '%s' has error='%s'" % (sys.exc_traceback.tb_lineno, e))   
-            autolog(ERROR, u"Response from Smappee was:'%s'" % (responseFromSmappee))   
+            self.generalLogger.error(u"StandardError detected in 'handleSmappeeResponse'. Line '%s' has error='%s'" % (
+                sys.exc_traceback.tb_lineno, e))
+            self.generalLogger.error(u"Response from Smappee was:'%s'" % responseFromSmappee)
 
+    def setSmappeeServiceLocationIdToDevId(self, function, smappeeDeviceTypeId, serviceLocationId, devId,
+                                           smappeeAddress, devName):
 
-    def setSmappeeServiceLocationIdToDevId(self, function, smappeeDeviceTypeId, serviceLocationId, devId, smappeeAddress, devName):
+        # self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeSensor', responseLocationId, 0, sensorId, sensorName)
 
-      #  self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeSensor', responseLocationId, 0, sensorId, sensorName)
-
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: Plugin")
 
         try:
 
             if serviceLocationId == "" or serviceLocationId == "NONE":
                 return
-     
-            if serviceLocationId not in pluginGlobal['smappeeServiceLocationIdToDevId']:
-                pluginGlobal['smappeeServiceLocationIdToDevId'] = {}
-                pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId] = {}
-                pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['name'] = "HOME-HOME"
-                pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['electricityId'] = 0
-                pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['solarId'] = 0
-                pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['electricityNetId'] = 0
-                pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['electricitySavedId'] = 0
-                pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['solarExportedId'] = 0
-                pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'] = {}
-                pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'] = {}
-                pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'] = {}
+
+            if serviceLocationId not in self.globals['smappeeServiceLocationIdToDevId']:
+                self.globals['smappeeServiceLocationIdToDevId'] = {}
+                self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId] = {}
+                self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['name'] = "HOME-HOME"
+                self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['electricityId'] = 0
+                self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['solarId'] = 0
+                self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['electricityNetId'] = 0
+                self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['electricitySavedId'] = 0
+                self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['solarExportedId'] = 0
+                self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'] = {}
+                self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'] = {}
+                self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'] = {}
 
             smappeeAddress = str(smappeeAddress)
             if function == 'ADD_UPDATE':
                 if smappeeDeviceTypeId == 'smappeeElectricity':
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['electricityId'] = devId
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['electricityId'] = devId
                 elif smappeeDeviceTypeId == 'smappeeElectricityNet':
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['electricityNetId'] = devId
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['electricityNetId'] = devId
                 elif smappeeDeviceTypeId == 'smappeeElectricitySaved':
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['electricitySavedId'] = devId
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['electricitySavedId'] = devId
                 elif smappeeDeviceTypeId == 'smappeeSolar':
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['solarId'] = devId
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['solarId'] = devId
                 elif smappeeDeviceTypeId == 'smappeeSolarUsed':
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['solarUsedId'] = devId
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['solarUsedId'] = devId
                 elif smappeeDeviceTypeId == 'smappeeSolarExported':
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['solarExportedId'] = devId
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['solarExportedId'] = devId
                 elif smappeeDeviceTypeId == 'smappeeSensor':
-                    if smappeeAddress not in pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds']:
-                        pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress] = {}
-                        pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress]['queued-add'] = False
-                        pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress]['queued-remove'] = False
-                        pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress]['devId'] = 0
-                    if  pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress]['devId'] == 0:
-                        pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress]['devId'] = devId
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress]['name'] = str(devName)
-                    autolog(DETAIL, u"setSmappeeServiceLocationIdToDevId [FF-E][SENSOR] - [%s]" % (pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds']))
+                    if smappeeAddress not in self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId][
+                            'sensorIds']:
+                        self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][
+                            smappeeAddress] = {}
+                        self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress][
+                            'queued-add'] = False
+                        self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress][
+                            'queued-remove'] = False
+                        self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress][
+                            'devId'] = 0
+                    if self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress][
+                            'devId'] == 0:
+                        self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress][
+                            'devId'] = devId
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress][
+                        'name'] = str(devName)
+                    self.generalLogger.debug(u"setSmappeeServiceLocationIdToDevId [FF-E][SENSOR] - [%s]" % (
+                        self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds']))
                 elif smappeeDeviceTypeId == 'smappeeAppliance':
-                    if smappeeAddress not in pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds']:
-                        pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress] = {}
-                        pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress]['queued-add'] = False
-                        pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress]['queued-remove'] = False
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress]['devId'] = devId
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress]['name'] = str(devName)
+                    if smappeeAddress not in self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId][
+                            'applianceIds']:
+                        self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][
+                            smappeeAddress] = {}
+                        self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][
+                            smappeeAddress]['queued-add'] = False
+                        self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][
+                            smappeeAddress]['queued-remove'] = False
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress][
+                        'devId'] = devId
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress][
+                        'name'] = str(devName)
                 elif smappeeDeviceTypeId == 'smappeeActuator':
-                    if smappeeAddress not in pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds']:
-                        pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress] = {}
-                        pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress]['queued-add'] = False
-                        pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress]['queued-remove'] = False
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress]['devId'] = devId
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress]['name'] = str(devName)
-     
+                    if smappeeAddress not in self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId][
+                            'actuatorIds']:
+                        self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][
+                            smappeeAddress] = {}
+                        self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][
+                            smappeeAddress]['queued-add'] = False
+                        self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][
+                            smappeeAddress]['queued-remove'] = False
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress][
+                        'devId'] = devId
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress][
+                        'name'] = str(devName)
+
             elif function == 'STOP':
                 if smappeeDeviceTypeId == 'smappeeElectricity':
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['electricityId'] = 0
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['electricityId'] = 0
                 elif smappeeDeviceTypeId == 'smappeeElectricityNet':
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['electricityNetId'] = 0
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['electricityNetId'] = 0
                 elif smappeeDeviceTypeId == 'smappeeElectricitySaved':
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['electricitySavedId'] = 0
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['electricitySavedId'] = 0
                 elif smappeeDeviceTypeId == 'smappeeSolar':
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['solarId'] = 0
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['solarId'] = 0
                 elif smappeeDeviceTypeId == 'smappeeSolarUsed':
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['solarUsedId'] = 0
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['solarUsedId'] = 0
                 elif smappeeDeviceTypeId == 'smappeeSolarExported':
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['solarExportedId'] = 0
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['solarExportedId'] = 0
                 elif smappeeDeviceTypeId == 'smappeeSensor':
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress]['queued-add'] = False
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress]['queued-remove'] = False
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress]['devId'] = 0
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress][
+                        'queued-add'] = False
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress][
+                        'queued-remove'] = False
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress][
+                        'devId'] = 0
                 elif smappeeDeviceTypeId == 'smappeeAppliance':
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress]['devId'] = 0
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress][
+                        'devId'] = 0
                 elif smappeeDeviceTypeId == 'smappeeActuator':
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress]['devId'] = 0
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress][
+                        'devId'] = 0
 
             elif function == 'QUEUE-ADD':
                 if smappeeDeviceTypeId == 'smappeeSensor':
-                    if smappeeAddress not in pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds']:
-                        pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress] = {}
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress]['devId'] = 0
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress]['name'] = str(devName)
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress]['deviceType'] = str(smappeeDeviceTypeId)
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress]['queued-add'] = True
+                    if smappeeAddress not in self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId][
+                            'sensorIds']:
+                        self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][
+                            smappeeAddress] = {}
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress][
+                        'devId'] = 0
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress][
+                        'name'] = str(devName)
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress][
+                        'deviceType'] = str(smappeeDeviceTypeId)
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress][
+                        'queued-add'] = True
                 elif smappeeDeviceTypeId == 'smappeeAppliance':
-                    if smappeeAddress not in pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds']:
-                        pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress] = {}
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress]['devId'] = 0
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress]['name'] = str(devName)
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress]['queued-add'] = True
+                    if smappeeAddress not in self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId][
+                            'applianceIds']:
+                        self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][
+                            smappeeAddress] = {}
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress][
+                        'devId'] = 0
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress][
+                        'name'] = str(devName)
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress][
+                        'queued-add'] = True
                 elif smappeeDeviceTypeId == 'smappeeActuator':
-                    if smappeeAddress not in pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds']:
-                        pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress] = {}
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress]['devId'] = 0
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress]['name'] = str(devName)
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress]['queued-add'] = True
+                    if smappeeAddress not in self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId][
+                            'actuatorIds']:
+                        self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][
+                            smappeeAddress] = {}
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress][
+                        'devId'] = 0
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress][
+                        'name'] = str(devName)
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress][
+                        'queued-add'] = True
 
             elif function == 'DEQUEUE':
                 if smappeeDeviceTypeId == 'smappeeSensor':
-                    if smappeeAddress not in pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds']:
-                        pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress] = {}
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress]['devId'] = devId
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress]['name'] = str(devName)
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress]['queued-add'] = False
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress]['queued-remove'] = False
+                    if smappeeAddress not in self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId][
+                            'sensorIds']:
+                        self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][
+                            smappeeAddress] = {}
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress][
+                        'devId'] = devId
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress][
+                        'name'] = str(devName)
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress][
+                        'queued-add'] = False
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress][
+                        'queued-remove'] = False
                 elif smappeeDeviceTypeId == 'smappeeAppliance':
-                    if smappeeAddress not in pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds']:
-                        pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress] = {}
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress]['devId'] = devId
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress]['name'] = str(devName)
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress]['queued-add'] = False
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress]['queued-remove'] = False
+                    if smappeeAddress not in self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId][
+                            'applianceIds']:
+                        self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][
+                            smappeeAddress] = {}
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress][
+                        'devId'] = devId
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress][
+                        'name'] = str(devName)
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress][
+                        'queued-add'] = False
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress][
+                        'queued-remove'] = False
                 elif smappeeDeviceTypeId == 'smappeeActuator':
-                    if smappeeAddress not in pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds']:
-                        pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress] = {}
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress]['devId'] = devId
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress]['name'] = str(devName)
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress]['queued-add'] = False
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress]['queued-remove'] = False
+                    if smappeeAddress not in self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId][
+                            'actuatorIds']:
+                        self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][
+                            smappeeAddress] = {}
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress][
+                        'devId'] = devId
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress][
+                        'name'] = str(devName)
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress][
+                        'queued-add'] = False
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress][
+                        'queued-remove'] = False
 
             elif function == 'QUEUE-REMOVE':
                 if smappeeDeviceTypeId == 'smappeeSensor':
-                    if smappeeAddress not in pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds']:
-                        pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress] = {}
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress]['devId'] = 0
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress]['name'] = str(devName)
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress]['queued-remove'] = True
+                    if smappeeAddress not in self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId][
+                            'sensorIds']:
+                        self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][
+                            smappeeAddress] = {}
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress][
+                        'devId'] = 0
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress][
+                        'name'] = str(devName)
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['sensorIds'][smappeeAddress][
+                        'queued-remove'] = True
                 elif smappeeDeviceTypeId == 'smappeeAppliance':
-                    if smappeeAddress not in pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds']:
-                        pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress] = {}
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress]['devId'] = 0
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress]['name'] = str(devName)
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress]['queued-remove'] = True
+                    if smappeeAddress not in self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId][
+                            'applianceIds']:
+                        self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][
+                            smappeeAddress] = {}
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress][
+                        'devId'] = 0
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress][
+                        'name'] = str(devName)
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['applianceIds'][smappeeAddress][
+                        'queued-remove'] = True
                 elif smappeeDeviceTypeId == 'smappeeActuator':
-                    if smappeeAddress not in pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds']:
-                        pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress] = {}
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress]['devId'] = 0
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress]['name'] = str(devName)
-                    pluginGlobal['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress]['queued-remove'] = True
-
+                    if smappeeAddress not in self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId][
+                            'actuatorIds']:
+                        self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][
+                            smappeeAddress] = {}
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress][
+                        'devId'] = 0
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress][
+                        'name'] = str(devName)
+                    self.globals['smappeeServiceLocationIdToDevId'][serviceLocationId]['actuatorIds'][smappeeAddress][
+                        'queued-remove'] = True
 
         except StandardError, e:
-            autolog(ERROR, u"StandardError detected in 'setSmappeeServiceLocationIdToDevId'. Line '%s' has error='%s'" % (sys.exc_traceback.tb_lineno, e))   
-        
-        return
+            self.generalLogger.error(
+                u"StandardError detected in 'setSmappeeServiceLocationIdToDevId'. Line '%s' has error='%s'" % (
+                    sys.exc_traceback.tb_lineno, e))
 
+        return
 
     def convertUnicode(self, input):
         if isinstance(input, dict):
@@ -4550,11 +4659,9 @@ class Plugin(indigo.PluginBase):
         else:
             return input
 
-
     def validateDeviceConfigUi(self, valuesDict, typeId, devId):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
- 
+        self.methodTracer.threaddebug(u"CLASS: Plugin")
+
         if typeId == "smappeeElectricity":
             result = self.validateDeviceConfigUiSmappeeElectricity(valuesDict, typeId, devId)
         elif typeId == "smappeeSolar":
@@ -4562,219 +4669,219 @@ class Plugin(indigo.PluginBase):
         elif typeId == "smappeeSensor":
             result = self.validateDeviceConfigUiSmappeeSensor(valuesDict, typeId, devId)
         else:
-            autolog(ERROR, u"WARNING: validateDeviceConfigUi TYPEID=%s NOT HANDLED" % (typeId))
+            self.generalLogger.error(u"WARNING: validateDeviceConfigUi TYPEID=%s NOT HANDLED" % typeId)
             result = (True, valuesDict)
 
-        if result[0] == True:
-            return (True, result[1])  # True, Valuesdict
+        if result[0]:
+            return True, result[1]  # True, Valuesdict
         else:
-            return (False, result[1], result[2])  # True, Valuesdict, ErrorDict
-
+            return False, result[1], result[2]  # True, Valuesdict, ErrorDict
 
     def validateDeviceConfigUiSmappeeElectricity(self, valuesDict, typeId, devId):
 
         validConfig = True  # Assume config is valid
 
-        pluginGlobal['smappees'][devId]['hideEnergyMeterCurPower'] = False
+        self.globals['smappees'][devId]['hideEnergyMeterCurPower'] = False
         try:
             if "hideEnergyMeterCurPower" in valuesDict:
-                pluginGlobal['smappees'][devId]['hideEnergyMeterCurPower'] = valuesDict["hideEnergyMeterCurPower"]
+                self.globals['smappees'][devId]['hideEnergyMeterCurPower'] = valuesDict["hideEnergyMeterCurPower"]
         except:
-            pluginGlobal['smappees'][devId]['hideEnergyMeterCurPower'] = False
+            self.globals['smappees'][devId]['hideEnergyMeterCurPower'] = False
 
-        pluginGlobal['smappees'][devId]['hideEnergyMeterAccumPower'] = False
+        self.globals['smappees'][devId]['hideEnergyMeterAccumPower'] = False
         try:
             if "hideEnergyMeterAccumPower" in valuesDict:
-                pluginGlobal['smappees'][devId]['hideEnergyMeterAccumPower'] = valuesDict["hideEnergyMeterAccumPower"]
+                self.globals['smappees'][devId]['hideEnergyMeterAccumPower'] = valuesDict["hideEnergyMeterAccumPower"]
         except:
-            pluginGlobal['smappees'][devId]['hideEnergyMeterAccumPower'] = False
+            self.globals['smappees'][devId]['hideEnergyMeterAccumPower'] = False
 
-        pluginGlobal['smappees'][devId]['hideAlwaysOnPower'] = False
+        self.globals['smappees'][devId]['hideAlwaysOnPower'] = False
         try:
             if "hideEnergyMeterAccumPowerCost" in valuesDict:
-                pluginGlobal['smappees'][devId]['hideEnergyMeterAccumPowerCost'] = valuesDict["hideEnergyMeterAccumPowerCost"]
+                self.globals['smappees'][devId]['hideEnergyMeterAccumPowerCost'] = valuesDict[
+                    "hideEnergyMeterAccumPowerCost"]
         except:
-            pluginGlobal['smappees'][devId]['hideEnergyMeterAccumPowerCost'] = False
+            self.globals['smappees'][devId]['hideEnergyMeterAccumPowerCost'] = False
 
-        pluginGlobal['smappees'][devId]['hideAlwaysOnPower'] = False
+        self.globals['smappees'][devId]['hideAlwaysOnPower'] = False
         try:
             if "hideAlwaysOnPower" in valuesDict:
-                pluginGlobal['smappees'][devId]['hideAlwaysOnPower'] = valuesDict["hideAlwaysOnPower"]
+                self.globals['smappees'][devId]['hideAlwaysOnPower'] = valuesDict["hideAlwaysOnPower"]
         except:
-            pluginGlobal['smappees'][devId]['hideAlwaysOnPower'] = False
+            self.globals['smappees'][devId]['hideAlwaysOnPower'] = False
 
         try:
             if "currencyCode" in valuesDict:
-                pluginGlobal['smappees'][dev.id]['currencyCode'] = valuesDict['currencyCode']
+                self.globals['smappees'][dev.id]['currencyCode'] = valuesDict['currencyCode']
             else:
-                pluginGlobal['smappees'][devId]['currencyCode'] = 'UKP'
+                self.globals['smappees'][devId]['currencyCode'] = 'UKP'
         except:
-            pluginGlobal['smappees'][devId]['currencyCode'] = 'UKP'
+            self.globals['smappees'][devId]['currencyCode'] = 'UKP'
 
         try:
             if "dailyStandingCharge" in valuesDict:
                 if valuesDict['dailyStandingCharge'] == '':
-                    pluginGlobal['smappees'][devId]['dailyStandingCharge'] = 0.00
+                    self.globals['smappees'][devId]['dailyStandingCharge'] = 0.00
                 else:
                     try:
-                        pluginGlobal['smappees'][devId]['dailyStandingCharge'] = float(valuesDict['dailyStandingCharge'])
+                        self.globals['smappees'][devId]['dailyStandingCharge'] = float(
+                            valuesDict['dailyStandingCharge'])
                     except:
-                        pluginGlobal['smappees'][devId]['dailyStandingCharge'] = 0.00
+                        self.globals['smappees'][devId]['dailyStandingCharge'] = 0.00
                         validConfig = False
             else:
-                pluginGlobal['smappees'][devId]['dailyStandingCharge'] = 0.00
+                self.globals['smappees'][devId]['dailyStandingCharge'] = 0.00
         except:
-            pluginGlobal['smappees'][devId]['dailyStandingCharge'] = 0.00
+            self.globals['smappees'][devId]['dailyStandingCharge'] = 0.00
             validConfig = False
 
-        if validConfig == False:
+        if not validConfig:
             errorDict = indigo.Dict()
             errorDict["dailyStandingCharge"] = "Daily Standing Charge is invalid"
             errorDict["showAlertText"] = "specify a valid financial amount e.g. '0.25'"
-            return (False, valuesDict, errorDict)
+            return False, valuesDict, errorDict
 
         try:
             if "kwhUnitCost" in valuesDict:
                 if valuesDict['kwhUnitCost'] == '':
-                    pluginGlobal['smappees'][devId]['kwhUnitCost'] = 0.00
+                    self.globals['smappees'][devId]['kwhUnitCost'] = 0.00
                 else:
                     try:
-                        pluginGlobal['smappees'][devId]['kwhUnitCost'] = float(valuesDict['kwhUnitCost'])
+                        self.globals['smappees'][devId]['kwhUnitCost'] = float(valuesDict['kwhUnitCost'])
                     except:
-                        pluginGlobal['smappees'][devId]['kwhUnitCost'] = 0.00
+                        self.globals['smappees'][devId]['kwhUnitCost'] = 0.00
                         validConfig = False
             else:
-                pluginGlobal['smappees'][devId]['kwhUnitCost'] = 0.00
+                self.globals['smappees'][devId]['kwhUnitCost'] = 0.00
         except:
-            pluginGlobal['smappees'][devId]['kwhUnitCost'] = 0.00
+            self.globals['smappees'][devId]['kwhUnitCost'] = 0.00
             validConfig = False
 
-        if validConfig == False:
+        if not validConfig:
             errorDict = indigo.Dict()
             errorDict["kwhUnitCost"] = "The kWh Unit Cost is invalid"
             errorDict["showAlertText"] = "specify a valid financial amount e.g. '0.15'"
-            return (False, valuesDict, errorDict)
+            return False, valuesDict, errorDict
 
-        return (True, valuesDict)
-
+        return True, valuesDict
 
     def validateDeviceConfigUiSmappeeSolar(self, valuesDict, typeId, devId):
 
-        pluginGlobal['smappees'][devId]['hideSolarMeterCurGeneration'] = False
+        self.globals['smappees'][devId]['hideSolarMeterCurGeneration'] = False
         try:
             if "hideSolarMeterCurGeneration" in valuesDict:
-                pluginGlobal['smappees'][devId]['hideSolarMeterCurGeneration'] = valuesDict["hideSolarMeterCurGeneration"]
+                self.globals['smappees'][devId]['hideSolarMeterCurGeneration'] = valuesDict[
+                    "hideSolarMeterCurGeneration"]
         except:
-            pluginGlobal['smappees'][devId]['hideSolarMeterCurGeneration'] = False
+            self.globals['smappees'][devId]['hideSolarMeterCurGeneration'] = False
 
-        pluginGlobal['smappees'][devId]['hideSolarMeterAccumGeneration'] = False
+        self.globals['smappees'][devId]['hideSolarMeterAccumGeneration'] = False
         try:
             if "hideSolarMeterAccumGeneration" in valuesDict:
-                pluginGlobal['smappees'][devId]['hideSolarMeterAccumGeneration'] = valuesDict["hideSolarMeterAccumGeneration"]
+                self.globals['smappees'][devId]['hideSolarMeterAccumGeneration'] = valuesDict[
+                    "hideSolarMeterAccumGeneration"]
         except:
-            pluginGlobal['smappees'][devId]['hideSolarMeterAccumGeneration'] = False
+            self.globals['smappees'][devId]['hideSolarMeterAccumGeneration'] = False
 
-        return (True, valuesDict)
-
-
+        return True, valuesDict
 
     def validateDeviceConfigUiSmappeeSensor(self, valuesDict, typeId, devId):
 
         validConfig = True  # Assume config is valid
 
-        pluginGlobal['smappees'][devId]['hideEnergyMeterCurPower'] = False
+        self.globals['smappees'][devId]['hideEnergyMeterCurPower'] = False
         try:
             if "hideEnergyMeterCurPower" in valuesDict:
-                pluginGlobal['smappees'][devId]['hideEnergyMeterCurPower'] = valuesDict["hideEnergyMeterCurPower"]
+                self.globals['smappees'][devId]['hideEnergyMeterCurPower'] = valuesDict["hideEnergyMeterCurPower"]
         except:
-            pluginGlobal['smappees'][devId]['hideEnergyMeterCurPower'] = False
+            self.globals['smappees'][devId]['hideEnergyMeterCurPower'] = False
 
-        pluginGlobal['smappees'][devId]['hideEnergyMeterAccumPower'] = False
+        self.globals['smappees'][devId]['hideEnergyMeterAccumPower'] = False
         try:
             if "hideEnergyMeterAccumPower" in valuesDict:
-                pluginGlobal['smappees'][devId]['hideEnergyMeterAccumPower'] = valuesDict["hideEnergyMeterAccumPower"]
+                self.globals['smappees'][devId]['hideEnergyMeterAccumPower'] = valuesDict["hideEnergyMeterAccumPower"]
         except:
-            pluginGlobal['smappees'][devId]['hideEnergyMeterAccumPower'] = False
+            self.globals['smappees'][devId]['hideEnergyMeterAccumPower'] = False
 
-        pluginGlobal['smappees'][devId]['hideAlwaysOnPower'] = False
+        self.globals['smappees'][devId]['hideAlwaysOnPower'] = False
         try:
             if "hideEnergyMeterAccumPowerCost" in valuesDict:
-                pluginGlobal['smappees'][devId]['hideEnergyMeterAccumPowerCost'] = valuesDict["hideEnergyMeterAccumPowerCost"]
+                self.globals['smappees'][devId]['hideEnergyMeterAccumPowerCost'] = valuesDict[
+                    "hideEnergyMeterAccumPowerCost"]
         except:
-            pluginGlobal['smappees'][devId]['hideEnergyMeterAccumPowerCost'] = False
+            self.globals['smappees'][devId]['hideEnergyMeterAccumPowerCost'] = False
 
-        pluginGlobal['smappees'][devId]['hideAlwaysOnPower'] = False
+        self.globals['smappees'][devId]['hideAlwaysOnPower'] = False
         try:
             if "hideAlwaysOnPower" in valuesDict:
-                pluginGlobal['smappees'][devId]['hideAlwaysOnPower'] = valuesDict["hideAlwaysOnPower"]
+                self.globals['smappees'][devId]['hideAlwaysOnPower'] = valuesDict["hideAlwaysOnPower"]
         except:
-            pluginGlobal['smappees'][devId]['hideAlwaysOnPower'] = False
+            self.globals['smappees'][devId]['hideAlwaysOnPower'] = False
 
         try:
             if "currencyCode" in valuesDict:
-                pluginGlobal['smappees'][dev.id]['currencyCode'] = valuesDict['currencyCode']
+                self.globals['smappees'][devId]['currencyCode'] = valuesDict['currencyCode']
             else:
-                pluginGlobal['smappees'][devId]['currencyCode'] = 'UKP'
+                self.globals['smappees'][devId]['currencyCode'] = 'UKP'
         except:
-            pluginGlobal['smappees'][devId]['currencyCode'] = 'UKP'
+            self.globals['smappees'][devId]['currencyCode'] = 'UKP'
 
         try:
             if "dailyStandingCharge" in valuesDict:
                 if valuesDict['dailyStandingCharge'] == '':
-                    pluginGlobal['smappees'][devId]['dailyStandingCharge'] = 0.00
+                    self.globals['smappees'][devId]['dailyStandingCharge'] = 0.00
                 else:
                     try:
-                        pluginGlobal['smappees'][devId]['dailyStandingCharge'] = float(valuesDict['dailyStandingCharge'])
+                        self.globals['smappees'][devId]['dailyStandingCharge'] = float(
+                            valuesDict['dailyStandingCharge'])
                     except:
-                        pluginGlobal['smappees'][devId]['dailyStandingCharge'] = 0.00
+                        self.globals['smappees'][devId]['dailyStandingCharge'] = 0.00
                         validConfig = False
             else:
-                pluginGlobal['smappees'][devId]['dailyStandingCharge'] = 0.00
+                self.globals['smappees'][devId]['dailyStandingCharge'] = 0.00
         except:
-            pluginGlobal['smappees'][devId]['dailyStandingCharge'] = 0.00
+            self.globals['smappees'][devId]['dailyStandingCharge'] = 0.00
             validConfig = False
 
-        if validConfig == False:
+        if not validConfig:
             errorDict = indigo.Dict()
             errorDict["dailyStandingCharge"] = "Daily Standing Charge is invalid"
             errorDict["showAlertText"] = "specify a valid financial amount e.g. '0.25'"
-            return (False, valuesDict, errorDict)
+            return False, valuesDict, errorDict
 
         try:
             if "unitCost" in valuesDict:
                 if valuesDict['unitCost'] == '':
-                    pluginGlobal['smappees'][devId]['unitCost'] = 0.00
+                    self.globals['smappees'][devId]['unitCost'] = 0.00
                 else:
                     try:
-                        pluginGlobal['smappees'][devId]['kwhUnitCost'] = float(valuesDict['unitCost'])
+                        self.globals['smappees'][devId]['kwhUnitCost'] = float(valuesDict['unitCost'])
                     except:
-                        pluginGlobal['smappees'][devId]['kwhUnitCost'] = 0.00
+                        self.globals['smappees'][devId]['kwhUnitCost'] = 0.00
                         validConfig = False
             else:
-                pluginGlobal['smappees'][devId]['kwhUnitCost'] = 0.00
+                self.globals['smappees'][devId]['kwhUnitCost'] = 0.00
         except:
-            pluginGlobal['smappees'][devId]['kwhUnitCost'] = 0.00
+            self.globals['smappees'][devId]['kwhUnitCost'] = 0.00
             validConfig = False
 
-        if validConfig == False:
+        if not validConfig:
             errorDict = indigo.Dict()
             errorDict["kwhUnitCost"] = "The Unit Cost is invalid"
             errorDict["showAlertText"] = "specify a valid financial amount e.g. '0.15'"
-            return (False, valuesDict, errorDict)
+            return False, valuesDict, errorDict
 
-        return (True, valuesDict)
-
-
-
+        return True, valuesDict
 
     def deviceStartComm(self, dev):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: Plugin")
 
         if dev.deviceTypeId == "smappeeElectricity" or dev.deviceTypeId == "smappeeElectricityNet" or dev.deviceTypeId == "smappeeElectricitySaved" or dev.deviceTypeId == "smappeeSolar" or dev.deviceTypeId == "smappeeSolarUsed" or dev.deviceTypeId == "smappeeSolarExported" or dev.deviceTypeId == "smappeeSensor" or dev.deviceTypeId == "smappeeAppliance" or dev.deviceTypeId == "smappeeActuator":
             pass
         else:
-            autolog(ERROR, u"Failed to start Smappee Appliance [%s]: Device type [%s] not known by plugin." % (dev.name, dev.deviceTypeId))
+            self.generalLogger.error(
+                u"Failed to start Smappee Appliance [%s]: Device type [%s] not known by plugin." % (
+                    dev.name, dev.deviceTypeId))
             return
 
         dev.stateListOrDisplayStateIdChanged()  # Ensure latest devices.xml is being used
@@ -4783,612 +4890,705 @@ class Plugin(indigo.PluginBase):
             # Initialise internal to plugin smappee electricity states to default values
             if dev.deviceTypeId == "smappeeElectricity":
 
-                autolog(DETAIL, u"SMAPPEE DEV [ELECTRICITY] START smappeeServiceLocationIdToDevId = [%s]" % (pluginGlobal['smappeeServiceLocationIdToDevId']))
+                self.generalLogger.debug(u"SMAPPEE DEV [ELECTRICITY] START smappeeServiceLocationIdToDevId = [%s]" % (
+                    self.globals['smappeeServiceLocationIdToDevId']))
 
-                pluginGlobal['config']['supportsElectricity'] = True
+                self.globals['config']['supportsElectricity'] = True
 
                 self.serviceLocationId = str(dev.pluginProps['serviceLocationId'])
 
-                autolog(DETAIL, u"SMAPPEE DEV [ELECTRICITY] START self.serviceLocationId = [%s]" % (self.serviceLocationId))
+                self.generalLogger.debug(
+                    u"SMAPPEE DEV [ELECTRICITY] START self.serviceLocationId = [%s]" % self.serviceLocationId)
 
-                self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeElectricity', self.serviceLocationId, dev.id, "", "")
+                self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeElectricity', self.serviceLocationId,
+                                                        dev.id, "", "")
 
-                autolog(DETAIL, u"SMAPPEE DEV [ELECTRICITY] START smappeeServiceLocationIdToDevId [2] = [%s]" % (pluginGlobal['smappeeServiceLocationIdToDevId']))
+                self.generalLogger.debug(
+                    u"SMAPPEE DEV [ELECTRICITY] START smappeeServiceLocationIdToDevId [2] = [%s]" % (
+                        self.globals['smappeeServiceLocationIdToDevId']))
 
-                pluginGlobal['smappees'][dev.id] = {}
-                pluginGlobal['smappees'][dev.id]['serviceLocationId'] = dev.pluginProps['serviceLocationId']
-                pluginGlobal['smappees'][dev.id]['serviceLocationName'] = dev.pluginProps['serviceLocationName']
-                pluginGlobal['smappees'][dev.id]['name'] = dev.name
-                pluginGlobal['smappees'][dev.id]['longditude'] = 0
-                pluginGlobal['smappees'][dev.id]['latitude'] = 0
-                pluginGlobal['smappees'][dev.id]['electricityCost'] = 0
-                pluginGlobal['smappees'][dev.id]['electricityCurrency'] = 0
-                pluginGlobal['smappees'][dev.id]['curEnergyLevel'] = 0.0
-                pluginGlobal['smappees'][dev.id]['accumEnergyTotal'] = 0.0
-                pluginGlobal['smappees'][dev.id]['dailyTotalCost'] = 0.0
-                pluginGlobal['smappees'][dev.id]['alwaysOn'] = 0.0
-                pluginGlobal['smappees'][dev.id]['lastResetElectricityUtc'] = 0
-                pluginGlobal['smappees'][dev.id]['lastReadingElectricityUtc'] = 0
-                pluginGlobal['smappees'][dev.id]['lastReadingElectricity'] = 0.0
+                self.globals['smappees'][dev.id] = {}
+                self.globals['smappees'][dev.id]['serviceLocationId'] = dev.pluginProps['serviceLocationId']
+                self.globals['smappees'][dev.id]['serviceLocationName'] = dev.pluginProps['serviceLocationName']
+                self.globals['smappees'][dev.id]['name'] = dev.name
+                self.globals['smappees'][dev.id]['longditude'] = 0
+                self.globals['smappees'][dev.id]['latitude'] = 0
+                self.globals['smappees'][dev.id]['electricityCost'] = 0
+                self.globals['smappees'][dev.id]['electricityCurrency'] = 0
+                self.globals['smappees'][dev.id]['curEnergyLevel'] = 0.0
+                self.globals['smappees'][dev.id]['accumEnergyTotal'] = 0.0
+                self.globals['smappees'][dev.id]['dailyTotalCost'] = 0.0
+                self.globals['smappees'][dev.id]['alwaysOn'] = 0.0
+                self.globals['smappees'][dev.id]['lastResetElectricityUtc'] = 0
+                self.globals['smappees'][dev.id]['lastReadingElectricityUtc'] = 0
+                self.globals['smappees'][dev.id]['lastReadingElectricity'] = 0.0
                 try:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterCurPower'] = dev.pluginProps['hideEnergyMeterCurPower']
+                    self.globals['smappees'][dev.id]['hideEnergyMeterCurPower'] = dev.pluginProps[
+                        'hideEnergyMeterCurPower']
                 except:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterCurPower'] = False
+                    self.globals['smappees'][dev.id]['hideEnergyMeterCurPower'] = False
                 try:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterAccumPower'] = dev.pluginProps['hideEnergyMeterAccumPower']
+                    self.globals['smappees'][dev.id]['hideEnergyMeterAccumPower'] = dev.pluginProps[
+                        'hideEnergyMeterAccumPower']
                 except:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterAccumPower'] = False
+                    self.globals['smappees'][dev.id]['hideEnergyMeterAccumPower'] = False
                 try:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterAccumPowerCost'] = dev.pluginProps['hideEnergyMeterAccumPowerCost']
+                    self.globals['smappees'][dev.id]['hideEnergyMeterAccumPowerCost'] = dev.pluginProps[
+                        'hideEnergyMeterAccumPowerCost']
                 except:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterAccumPowerCost'] = False
+                    self.globals['smappees'][dev.id]['hideEnergyMeterAccumPowerCost'] = False
                 try:
-                    pluginGlobal['smappees'][dev.id]['hideAlwaysOnPower'] = dev.pluginProps['hideAlwaysOnPower']
+                    self.globals['smappees'][dev.id]['hideAlwaysOnPower'] = dev.pluginProps['hideAlwaysOnPower']
                 except:
-                    pluginGlobal['smappees'][dev.id]['hideAlwaysOnPower'] = False
+                    self.globals['smappees'][dev.id]['hideAlwaysOnPower'] = False
                 try:
-                    pluginGlobal['smappees'][dev.id]['currencyCode'] = dev.pluginProps['currencyCode']
+                    self.globals['smappees'][dev.id]['currencyCode'] = dev.pluginProps['currencyCode']
                 except:
-                    pluginGlobal['smappees'][dev.id]['currencyCode'] = 'UKP'
+                    self.globals['smappees'][dev.id]['currencyCode'] = 'UKP'
                 try:
-                    pluginGlobal['smappees'][dev.id]['dailyStandingCharge'] = float(dev.pluginProps['dailyStandingCharge'])
+                    self.globals['smappees'][dev.id]['dailyStandingCharge'] = float(
+                        dev.pluginProps['dailyStandingCharge'])
                 except:
-                    pluginGlobal['smappees'][dev.id]['dailyStandingCharge'] = 8.88  # To make it obvious there is an error
+                    self.globals['smappees'][dev.id][
+                        'dailyStandingCharge'] = 8.88  # To make it obvious there is an error
                 try:
-                    pluginGlobal['smappees'][dev.id]['kwhUnitCost'] = float(dev.pluginProps['kwhUnitCost'])
+                    self.globals['smappees'][dev.id]['kwhUnitCost'] = float(dev.pluginProps['kwhUnitCost'])
                 except:
-                    pluginGlobal['smappees'][dev.id]['kwhUnitCost'] = 9.99  # To make it obvious there is an error
+                    self.globals['smappees'][dev.id]['kwhUnitCost'] = 9.99  # To make it obvious there is an error
 
                 if "curEnergyLevel" in dev.states:
-                    wattStr = "%3.0f Watts" % (pluginGlobal['smappees'][dev.id]['curEnergyLevel'])
-                    dev.updateStateOnServer("curEnergyLevel", pluginGlobal['smappees'][dev.id]['curEnergyLevel'], uiValue=wattStr)
+                    wattStr = "%3.0f Watts" % (self.globals['smappees'][dev.id]['curEnergyLevel'])
+                    dev.updateStateOnServer("curEnergyLevel", self.globals['smappees'][dev.id]['curEnergyLevel'],
+                                            uiValue=wattStr)
 
                 if "accumEnergyTotal" in dev.states:
-                    kwhStr = "%3.0f kWh" % (pluginGlobal['smappees'][dev.id]['accumEnergyTotal'])
-                    dev.updateStateOnServer("accumEnergyTotal", pluginGlobal['smappees'][dev.id]['accumEnergyTotal'], uiValue=kwhStr)
+                    kwhStr = "%3.0f kWh" % (self.globals['smappees'][dev.id]['accumEnergyTotal'])
+                    dev.updateStateOnServer("accumEnergyTotal", self.globals['smappees'][dev.id]['accumEnergyTotal'],
+                                            uiValue=kwhStr)
 
                 if "alwaysOn" in dev.states:
-                    wattStr = "%3.0f Watts" % (pluginGlobal['smappees'][dev.id]['alwaysOn'])
-                    dev.updateStateOnServer("alwaysOn", pluginGlobal['smappees'][dev.id]['alwaysOn'], uiValue=wattStr)
+                    wattStr = "%3.0f Watts" % (self.globals['smappees'][dev.id]['alwaysOn'])
+                    dev.updateStateOnServer("alwaysOn", self.globals['smappees'][dev.id]['alwaysOn'], uiValue=wattStr)
 
-                if  "dailyTotalCost" in dev.states:
-                    costStr = "%3.0f" % (pluginGlobal['smappees'][dev.id]['dailyTotalCost'])
-                    dev.updateStateOnServer("dailyTotalCost", pluginGlobal['smappees'][dev.id]['dailyTotalCost'], uiValue=costStr)
+                if "dailyTotalCost" in dev.states:
+                    costStr = "%3.0f" % (self.globals['smappees'][dev.id]['dailyTotalCost'])
+                    dev.updateStateOnServer("dailyTotalCost", self.globals['smappees'][dev.id]['dailyTotalCost'],
+                                            uiValue=costStr)
 
                 dev.updateStateOnServer("smappeeElectricityOnline", False, uiValue='offline')
 
-                if pluginGlobal['pluginInitialised'] == True and self.serviceLocationId != "":
-                    self.sendToSmappeeQueue.put(["GET_CONSUMPTION",str(self.serviceLocationId)])
+                if self.globals['pluginInitialised'] and self.serviceLocationId != "":
+                    self.globals['queues']['sendToSmappee'].put(["GET_CONSUMPTION", str(self.serviceLocationId)])
 
-                autolog(INFO, u"Started '%s' at address [%s]" % (dev.name, dev.address))
+                self.generalLogger.info(u"Started '%s' at address [%s]" % (dev.name, dev.address))
 
             # Initialise internal to plugin smappee electricity net states to default values
             elif dev.deviceTypeId == "smappeeElectricityNet":
 
-                autolog(DETAIL, u"SMAPPEE DEV [ELECTRICITY NET] START smappeeServiceLocationIdToDevId = [%s]" % (pluginGlobal['smappeeServiceLocationIdToDevId']))
+                self.generalLogger.debug(
+                    u"SMAPPEE DEV [ELECTRICITY NET] START smappeeServiceLocationIdToDevId = [%s]" % (
+                        self.globals['smappeeServiceLocationIdToDevId']))
 
-                pluginGlobal['config']['supportsElectricityNet'] = True
+                self.globals['config']['supportsElectricityNet'] = True
 
                 self.serviceLocationId = str(dev.pluginProps['serviceLocationId'])
 
-                autolog(DETAIL, u"SMAPPEE DEV [ELECTRICITY NET] START self.serviceLocationId = [%s]" % (self.serviceLocationId))
+                self.generalLogger.debug(
+                    u"SMAPPEE DEV [ELECTRICITY NET] START self.serviceLocationId = [%s]" % self.serviceLocationId)
 
-                self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeElectricityNet', self.serviceLocationId, dev.id, '0', '0')
+                self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeElectricityNet', self.serviceLocationId,
+                                                        dev.id, '0', '0')
 
-                autolog(DETAIL, u"SMAPPEE DEV [ELECTRICITY NET] START smappeeServiceLocationIdToDevId [2] = [%s]" % (pluginGlobal['smappeeServiceLocationIdToDevId']))
+                self.generalLogger.debug(
+                    u"SMAPPEE DEV [ELECTRICITY NET] START smappeeServiceLocationIdToDevId [2] = [%s]" % (
+                        self.globals['smappeeServiceLocationIdToDevId']))
 
-                pluginGlobal['smappees'][dev.id] = {}
-                pluginGlobal['smappees'][dev.id]['serviceLocationId'] = dev.pluginProps['serviceLocationId']
-                pluginGlobal['smappees'][dev.id]['serviceLocationName'] = dev.pluginProps['serviceLocationName']
-                pluginGlobal['smappees'][dev.id]['name'] = dev.name
-                pluginGlobal['smappees'][dev.id]['electricityCost'] = 0
-                pluginGlobal['smappees'][dev.id]['electricityCurrency'] = 0
-                pluginGlobal['smappees'][dev.id]['curEnergyLevel'] = 0.0
-                pluginGlobal['smappees'][dev.id]['accumEnergyTotal'] = 0.0
-                pluginGlobal['smappees'][dev.id]['dailyNetTotalCost'] = 0.0
-                pluginGlobal['smappees'][dev.id]['lastResetElectricityNetUtc'] = 0
-                pluginGlobal['smappees'][dev.id]['lastReadingElectricityNetUtc'] = 0
-                pluginGlobal['smappees'][dev.id]['lastReadingElectricityNet'] = 0.0
+                self.globals['smappees'][dev.id] = {}
+                self.globals['smappees'][dev.id]['serviceLocationId'] = dev.pluginProps['serviceLocationId']
+                self.globals['smappees'][dev.id]['serviceLocationName'] = dev.pluginProps['serviceLocationName']
+                self.globals['smappees'][dev.id]['name'] = dev.name
+                self.globals['smappees'][dev.id]['electricityCost'] = 0
+                self.globals['smappees'][dev.id]['electricityCurrency'] = 0
+                self.globals['smappees'][dev.id]['curEnergyLevel'] = 0.0
+                self.globals['smappees'][dev.id]['accumEnergyTotal'] = 0.0
+                self.globals['smappees'][dev.id]['dailyNetTotalCost'] = 0.0
+                self.globals['smappees'][dev.id]['lastResetElectricityNetUtc'] = 0
+                self.globals['smappees'][dev.id]['lastReadingElectricityNetUtc'] = 0
+                self.globals['smappees'][dev.id]['lastReadingElectricityNet'] = 0.0
                 try:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterCurNetPower'] = dev.pluginProps['hideEnergyMeterCurNetPower']
+                    self.globals['smappees'][dev.id]['hideEnergyMeterCurNetPower'] = dev.pluginProps[
+                        'hideEnergyMeterCurNetPower']
                 except:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterCurNetPower'] = False
+                    self.globals['smappees'][dev.id]['hideEnergyMeterCurNetPower'] = False
                 try:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterCurZeroNetPower'] = dev.pluginProps['hideEnergyMeterCurZeroNetPower']
+                    self.globals['smappees'][dev.id]['hideEnergyMeterCurZeroNetPower'] = dev.pluginProps[
+                        'hideEnergyMeterCurZeroNetPower']
                 except:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterCurZeroNetPower'] = False
+                    self.globals['smappees'][dev.id]['hideEnergyMeterCurZeroNetPower'] = False
                 try:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterAccumNetPower'] = dev.pluginProps['hideEnergyMeterAccumNetPower']
+                    self.globals['smappees'][dev.id]['hideEnergyMeterAccumNetPower'] = dev.pluginProps[
+                        'hideEnergyMeterAccumNetPower']
                 except:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterAccumNetPower'] = False
+                    self.globals['smappees'][dev.id]['hideEnergyMeterAccumNetPower'] = False
                 try:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterAccumNetPowerCost'] = dev.pluginProps['hideEnergyMeterAccumNetPowerCost']
+                    self.globals['smappees'][dev.id]['hideEnergyMeterAccumNetPowerCost'] = dev.pluginProps[
+                        'hideEnergyMeterAccumNetPowerCost']
                 except:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterAccumNetPowerCost'] = False
+                    self.globals['smappees'][dev.id]['hideEnergyMeterAccumNetPowerCost'] = False
                 try:
-                    pluginGlobal['smappees'][dev.id]['hideNoChangeEnergyMeterAccumNetPower'] = dev.pluginProps['hideNoChangeEnergyMeterAccumNetPower']
+                    self.globals['smappees'][dev.id]['hideNoChangeEnergyMeterAccumNetPower'] = dev.pluginProps[
+                        'hideNoChangeEnergyMeterAccumNetPower']
                 except:
-                    pluginGlobal['smappees'][dev.id]['hideNoChangeEnergyMeterAccumNetPower'] = False
+                    self.globals['smappees'][dev.id]['hideNoChangeEnergyMeterAccumNetPower'] = False
 
                 if "curEnergyLevel" in dev.states:
-                    wattStr = "%3.0f Watts" % (pluginGlobal['smappees'][dev.id]['curEnergyLevel'])
-                    dev.updateStateOnServer("curEnergyLevel", pluginGlobal['smappees'][dev.id]['curEnergyLevel'], uiValue=wattStr)
+                    wattStr = "%3.0f Watts" % (self.globals['smappees'][dev.id]['curEnergyLevel'])
+                    dev.updateStateOnServer("curEnergyLevel", self.globals['smappees'][dev.id]['curEnergyLevel'],
+                                            uiValue=wattStr)
 
                 if "accumEnergyTotal" in dev.states:
-                    kwhStr = "%3.0f kWh" % (pluginGlobal['smappees'][dev.id]['accumEnergyTotal'])
-                    dev.updateStateOnServer("accumEnergyTotal", pluginGlobal['smappees'][dev.id]['accumEnergyTotal'], uiValue=kwhStr)
+                    kwhStr = "%3.0f kWh" % (self.globals['smappees'][dev.id]['accumEnergyTotal'])
+                    dev.updateStateOnServer("accumEnergyTotal", self.globals['smappees'][dev.id]['accumEnergyTotal'],
+                                            uiValue=kwhStr)
 
-                if  "dailyNetTotalCost" in dev.states:
-                    costStr = "%3.0f" % (pluginGlobal['smappees'][dev.id]['dailyNetTotalCost'])
-                    dev.updateStateOnServer("dailyNetTotalCost", pluginGlobal['smappees'][dev.id]['dailyNetTotalCost'], uiValue=costStr)
+                if "dailyNetTotalCost" in dev.states:
+                    costStr = "%3.0f" % (self.globals['smappees'][dev.id]['dailyNetTotalCost'])
+                    dev.updateStateOnServer("dailyNetTotalCost", self.globals['smappees'][dev.id]['dailyNetTotalCost'],
+                                            uiValue=costStr)
 
                 dev.updateStateOnServer("smappeeElectricityNetOnline", False, uiValue='offline')
 
-                # if pluginGlobal['pluginInitialised'] == True and self.serviceLocationId != "":
-                #     self.sendToSmappeeQueue.put(["GET_CONSUMPTION",str(self.serviceLocationId)])
+                # if self.globals['pluginInitialised'] == True and self.serviceLocationId != "":
+                #     self.globals['queues']['sendToSmappee'].put(["GET_CONSUMPTION",str(self.serviceLocationId)])
 
-                autolog(INFO, u"Started '%s' at address [%s]" % (dev.name, dev.address))
+                self.generalLogger.info(u"Started '%s' at address [%s]" % (dev.name, dev.address))
 
             # Initialise internal to plugin smappee electricity Saved states to default values
             elif dev.deviceTypeId == "smappeeElectricitySaved":
 
-                autolog(DETAIL, u"SMAPPEE DEV [ELECTRICITY SAVED] START smappeeServiceLocationIdToDevId = [%s]" % (pluginGlobal['smappeeServiceLocationIdToDevId']))
+                self.generalLogger.debug(
+                    u"SMAPPEE DEV [ELECTRICITY SAVED] START smappeeServiceLocationIdToDevId = [%s]" % (
+                        self.globals['smappeeServiceLocationIdToDevId']))
 
-                pluginGlobal['config']['supportsElectricitySaved'] = True
+                self.globals['config']['supportsElectricitySaved'] = True
 
                 self.serviceLocationId = str(dev.pluginProps['serviceLocationId'])
 
-                autolog(DETAIL, u"SMAPPEE DEV [ELECTRICITY SAVED] START self.serviceLocationId = [%s]" % (self.serviceLocationId))
+                self.generalLogger.debug(
+                    u"SMAPPEE DEV [ELECTRICITY SAVED] START self.serviceLocationId = [%s]" % self.serviceLocationId)
 
-                self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeElectricitySaved', self.serviceLocationId, dev.id, '0', '0')
+                self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeElectricitySaved', self.serviceLocationId,
+                                                        dev.id, '0', '0')
 
-                autolog(DETAIL, u"SMAPPEE DEV [ELECTRICITY SAVED] START smappeeServiceLocationIdToDevId [2] = [%s]" % (pluginGlobal['smappeeServiceLocationIdToDevId']))
+                self.generalLogger.debug(
+                    u"SMAPPEE DEV [ELECTRICITY SAVED] START smappeeServiceLocationIdToDevId [2] = [%s]" % (
+                        self.globals['smappeeServiceLocationIdToDevId']))
 
-                pluginGlobal['smappees'][dev.id] = {}
-                pluginGlobal['smappees'][dev.id]['serviceLocationId'] = dev.pluginProps['serviceLocationId']
-                pluginGlobal['smappees'][dev.id]['serviceLocationName'] = dev.pluginProps['serviceLocationName']
-                pluginGlobal['smappees'][dev.id]['name'] = dev.name
-                pluginGlobal['smappees'][dev.id]['electricityCost'] = 0
-                pluginGlobal['smappees'][dev.id]['electricityCurrency'] = 0
-                pluginGlobal['smappees'][dev.id]['curEnergyLevel'] = 0.0
-                pluginGlobal['smappees'][dev.id]['accumEnergyTotal'] = 0.0
-                pluginGlobal['smappees'][dev.id]['dailyTotalCostSaving'] = 0.0
-                pluginGlobal['smappees'][dev.id]['lastResetElectricitySavedUtc'] = 0
-                pluginGlobal['smappees'][dev.id]['lastReadingElectricitySavedUtc'] = 0
-                pluginGlobal['smappees'][dev.id]['lastReadingElectricitySaved'] = 0.0
+                self.globals['smappees'][dev.id] = {}
+                self.globals['smappees'][dev.id]['serviceLocationId'] = dev.pluginProps['serviceLocationId']
+                self.globals['smappees'][dev.id]['serviceLocationName'] = dev.pluginProps['serviceLocationName']
+                self.globals['smappees'][dev.id]['name'] = dev.name
+                self.globals['smappees'][dev.id]['electricityCost'] = 0
+                self.globals['smappees'][dev.id]['electricityCurrency'] = 0
+                self.globals['smappees'][dev.id]['curEnergyLevel'] = 0.0
+                self.globals['smappees'][dev.id]['accumEnergyTotal'] = 0.0
+                self.globals['smappees'][dev.id]['dailyTotalCostSaving'] = 0.0
+                self.globals['smappees'][dev.id]['lastResetElectricitySavedUtc'] = 0
+                self.globals['smappees'][dev.id]['lastReadingElectricitySavedUtc'] = 0
+                self.globals['smappees'][dev.id]['lastReadingElectricitySaved'] = 0.0
                 try:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterCurSavedPower'] = dev.pluginProps['hideEnergyMeterCurSavedPower']
+                    self.globals['smappees'][dev.id]['hideEnergyMeterCurSavedPower'] = dev.pluginProps[
+                        'hideEnergyMeterCurSavedPower']
                 except:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterCurSavedPower'] = False
+                    self.globals['smappees'][dev.id]['hideEnergyMeterCurSavedPower'] = False
                 try:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterCurZeroSavedPower'] = dev.pluginProps['hideEnergyMeterCurZeroSavedPower']
+                    self.globals['smappees'][dev.id]['hideEnergyMeterCurZeroSavedPower'] = dev.pluginProps[
+                        'hideEnergyMeterCurZeroSavedPower']
                 except:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterCurZeroSavedPower'] = False
+                    self.globals['smappees'][dev.id]['hideEnergyMeterCurZeroSavedPower'] = False
                 try:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterAccumSavedPower'] = dev.pluginProps['hideEnergyMeterAccumSavedPower']
+                    self.globals['smappees'][dev.id]['hideEnergyMeterAccumSavedPower'] = dev.pluginProps[
+                        'hideEnergyMeterAccumSavedPower']
                 except:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterAccumSavedPower'] = False
+                    self.globals['smappees'][dev.id]['hideEnergyMeterAccumSavedPower'] = False
                 try:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterAccumSavedPowerCost'] = dev.pluginProps['hideEnergyMeterAccumSavedPowerCost']
+                    self.globals['smappees'][dev.id]['hideEnergyMeterAccumSavedPowerCost'] = dev.pluginProps[
+                        'hideEnergyMeterAccumSavedPowerCost']
                 except:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterAccumSavedPowerCost'] = False
+                    self.globals['smappees'][dev.id]['hideEnergyMeterAccumSavedPowerCost'] = False
                 try:
-                    pluginGlobal['smappees'][dev.id]['hideNoChangeEnergyMeterAccumSavedPower'] = dev.pluginProps['hideNoChangeEnergyMeterAccumSavedPower']
+                    self.globals['smappees'][dev.id]['hideNoChangeEnergyMeterAccumSavedPower'] = dev.pluginProps[
+                        'hideNoChangeEnergyMeterAccumSavedPower']
                 except:
-                    pluginGlobal['smappees'][dev.id]['hideNoChangeEnergyMeterAccumSavedPower'] = False
-
+                    self.globals['smappees'][dev.id]['hideNoChangeEnergyMeterAccumSavedPower'] = False
 
                 if "curEnergyLevel" in dev.states:
-                    wattStr = "%3.0f Watts" % (pluginGlobal['smappees'][dev.id]['curEnergyLevel'])
-                    dev.updateStateOnServer("curEnergyLevel", pluginGlobal['smappees'][dev.id]['curEnergyLevel'], uiValue=wattStr)
+                    wattStr = "%3.0f Watts" % (self.globals['smappees'][dev.id]['curEnergyLevel'])
+                    dev.updateStateOnServer("curEnergyLevel", self.globals['smappees'][dev.id]['curEnergyLevel'],
+                                            uiValue=wattStr)
 
                 if "accumEnergyTotal" in dev.states:
-                    kwhStr = "%3.0f kWh" % (pluginGlobal['smappees'][dev.id]['accumEnergyTotal'])
-                    dev.updateStateOnServer("accumEnergyTotal", pluginGlobal['smappees'][dev.id]['accumEnergyTotal'], uiValue=kwhStr)
+                    kwhStr = "%3.0f kWh" % (self.globals['smappees'][dev.id]['accumEnergyTotal'])
+                    dev.updateStateOnServer("accumEnergyTotal", self.globals['smappees'][dev.id]['accumEnergyTotal'],
+                                            uiValue=kwhStr)
 
                 if "dailyTotalCostSaving" in dev.states:
-                    costStr = "%3.0f" % (pluginGlobal['smappees'][dev.id]['dailyTotalCostSaving'])
-                    dev.updateStateOnServer("dailyTotalCostSaving", pluginGlobal['smappees'][dev.id]['dailyTotalCostSaving'], uiValue=costStr)
+                    costStr = "%3.0f" % (self.globals['smappees'][dev.id]['dailyTotalCostSaving'])
+                    dev.updateStateOnServer("dailyTotalCostSaving",
+                                            self.globals['smappees'][dev.id]['dailyTotalCostSaving'], uiValue=costStr)
 
                 dev.updateStateOnServer("smappeeElectricitySavedOnline", False, uiValue='offline')
 
-                # if pluginGlobal['pluginInitialised'] == True and self.serviceLocationId != "":
-                #     self.sendToSmappeeQueue.put(["GET_CONSUMPTION",str(self.serviceLocationId)])
+                # if self.globals['pluginInitialised'] == True and self.serviceLocationId != "":
+                #     self.globals['queues']['sendToSmappee'].put(["GET_CONSUMPTION",str(self.serviceLocationId)])
 
-                autolog(INFO, u"Started '%s' at address [%s]" % (dev.name, dev.address))
+                self.generalLogger.info(u"Started '%s' at address [%s]" % (dev.name, dev.address))
 
             # Initialise internal to plugin smappee solar states to default values
             elif dev.deviceTypeId == "smappeeSolar":
 
-                autolog(DETAIL, u"SMAPPEE DEV [SOLAR] START smappeeServiceLocationIdToDevId = [%s]" % (pluginGlobal['smappeeServiceLocationIdToDevId']))
+                self.generalLogger.debug(u"SMAPPEE DEV [SOLAR] START smappeeServiceLocationIdToDevId = [%s]" % (
+                    self.globals['smappeeServiceLocationIdToDevId']))
 
-                pluginGlobal['config']['supportsSolar'] = True
+                self.globals['config']['supportsSolar'] = True
 
                 self.serviceLocationId = str(dev.pluginProps['serviceLocationId'])
 
-                autolog(DETAIL, u"SMAPPEE DEV [SOLAR] START self.serviceLocationId = [%s]" % (self.serviceLocationId))
+                self.generalLogger.debug(
+                    u"SMAPPEE DEV [SOLAR] START self.serviceLocationId = [%s]" % self.serviceLocationId)
 
-                self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeSolar', self.serviceLocationId, dev.id, '0', '0')
+                self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeSolar', self.serviceLocationId, dev.id,
+                                                        '0', '0')
 
-                autolog(DETAIL, u"SMAPPEE DEV [SOLAR] START smappeeServiceLocationIdToDevId [2] = [%s]" % (pluginGlobal['smappeeServiceLocationIdToDevId']))
+                self.generalLogger.debug(u"SMAPPEE DEV [SOLAR] START smappeeServiceLocationIdToDevId [2] = [%s]" % (
+                    self.globals['smappeeServiceLocationIdToDevId']))
 
-                pluginGlobal['smappees'][dev.id] = {}
-                pluginGlobal['smappees'][dev.id]['serviceLocationId'] = dev.pluginProps['serviceLocationId']
-                pluginGlobal['smappees'][dev.id]['serviceLocationName'] = dev.pluginProps['serviceLocationName']
-                pluginGlobal['smappees'][dev.id]['name'] = dev.name
-                pluginGlobal['smappees'][dev.id]['electricityCost'] = 0
-                pluginGlobal['smappees'][dev.id]['electricityCurrency'] = 0
-                pluginGlobal['smappees'][dev.id]['curEnergyLevel'] = 0.0
-                pluginGlobal['smappees'][dev.id]['accumEnergyTotal'] = 0.0
-                pluginGlobal['smappees'][dev.id]['lastResetSolarUtc'] = 0
-                pluginGlobal['smappees'][dev.id]['lastReadingSolarUtc'] = 0
-                pluginGlobal['smappees'][dev.id]['lastReadingSolar'] = 0.0
+                self.globals['smappees'][dev.id] = {}
+                self.globals['smappees'][dev.id]['serviceLocationId'] = dev.pluginProps['serviceLocationId']
+                self.globals['smappees'][dev.id]['serviceLocationName'] = dev.pluginProps['serviceLocationName']
+                self.globals['smappees'][dev.id]['name'] = dev.name
+                self.globals['smappees'][dev.id]['electricityCost'] = 0
+                self.globals['smappees'][dev.id]['electricityCurrency'] = 0
+                self.globals['smappees'][dev.id]['curEnergyLevel'] = 0.0
+                self.globals['smappees'][dev.id]['accumEnergyTotal'] = 0.0
+                self.globals['smappees'][dev.id]['lastResetSolarUtc'] = 0
+                self.globals['smappees'][dev.id]['lastReadingSolarUtc'] = 0
+                self.globals['smappees'][dev.id]['lastReadingSolar'] = 0.0
                 try:
-                    pluginGlobal['smappees'][dev.id]['hideSolarMeterCurGeneration'] = dev.pluginProps['hideSolarMeterCurGeneration']
+                    self.globals['smappees'][dev.id]['hideSolarMeterCurGeneration'] = dev.pluginProps[
+                        'hideSolarMeterCurGeneration']
                 except:
-                    pluginGlobal['smappees'][dev.id]['hideSolarMeterCurGeneration'] = False
+                    self.globals['smappees'][dev.id]['hideSolarMeterCurGeneration'] = False
                 try:
-                    pluginGlobal['smappees'][dev.id]['hideZeroSolarMeterCurGeneration'] = dev.pluginProps['hideZeroSolarMeterCurGeneration']
+                    self.globals['smappees'][dev.id]['hideZeroSolarMeterCurGeneration'] = dev.pluginProps[
+                        'hideZeroSolarMeterCurGeneration']
                 except:
-                    pluginGlobal['smappees'][dev.id]['hideZeroSolarMeterCurGeneration'] = False
+                    self.globals['smappees'][dev.id]['hideZeroSolarMeterCurGeneration'] = False
                 try:
-                    pluginGlobal['smappees'][dev.id]['hideSolarMeterAccumGeneration'] = dev.pluginProps['hideSolarMeterAccumGeneration']
+                    self.globals['smappees'][dev.id]['hideSolarMeterAccumGeneration'] = dev.pluginProps[
+                        'hideSolarMeterAccumGeneration']
                 except:
-                    pluginGlobal['smappees'][dev.id]['hideSolarMeterAccumGeneration'] = False
+                    self.globals['smappees'][dev.id]['hideSolarMeterAccumGeneration'] = False
                 try:
-                    pluginGlobal['smappees'][dev.id]['hideSolarMeterAccumGenerationCost'] = dev.pluginProps['hideSolarMeterAccumGenerationCost']
+                    self.globals['smappees'][dev.id]['hideSolarMeterAccumGenerationCost'] = dev.pluginProps[
+                        'hideSolarMeterAccumGenerationCost']
                 except:
-                    pluginGlobal['smappees'][dev.id]['hideSolarMeterAccumGenerationCost'] = False
+                    self.globals['smappees'][dev.id]['hideSolarMeterAccumGenerationCost'] = False
                 try:
-                    pluginGlobal['smappees'][dev.id]['hideNoChangeInSolarMeterAccumGeneration'] = dev.pluginProps['hideNoChangeInSolarMeterAccumGeneration']
+                    self.globals['smappees'][dev.id]['hideNoChangeInSolarMeterAccumGeneration'] = dev.pluginProps[
+                        'hideNoChangeInSolarMeterAccumGeneration']
                 except:
-                    pluginGlobal['smappees'][dev.id]['hideNoChangeInSolarMeterAccumGeneration'] = False
+                    self.globals['smappees'][dev.id]['hideNoChangeInSolarMeterAccumGeneration'] = False
                 try:
-                    pluginGlobal['smappees'][dev.id]['currencyCode'] = dev.pluginProps['currencyCode']
+                    self.globals['smappees'][dev.id]['currencyCode'] = dev.pluginProps['currencyCode']
                 except:
-                    pluginGlobal['smappees'][dev.id]['currencyCode'] = 'UKP'
+                    self.globals['smappees'][dev.id]['currencyCode'] = 'UKP'
                 try:
-                    pluginGlobal['smappees'][dev.id]['generationRate'] = float(dev.pluginProps['generationRate'])
+                    self.globals['smappees'][dev.id]['generationRate'] = float(dev.pluginProps['generationRate'])
                 except:
-                    pluginGlobal['smappees'][dev.id]['generationRate'] = 8.88  # To make it obvious there is an error
-
-                try:
-                    pluginGlobal['smappees'][dev.id]['exportType'] = dev.pluginProps['exportType']
-                except:
-                    pluginGlobal['smappees'][dev.id]['exportType'] = 'percentage'
-
-                try:
-                    pluginGlobal['smappees'][dev.id]['exportPercentage'] = float(dev.pluginProps['exportPercentage'])
-                except:
-                    pluginGlobal['smappees'][dev.id]['exportPercentage'] = 50.0  # To make it obvious there is an error
+                    self.globals['smappees'][dev.id]['generationRate'] = 8.88  # To make it obvious there is an error
 
                 try:
-                    pluginGlobal['smappees'][dev.id]['exportRate'] = float(dev.pluginProps['exportRate'])
+                    self.globals['smappees'][dev.id]['exportType'] = dev.pluginProps['exportType']
                 except:
-                    pluginGlobal['smappees'][dev.id]['exportRate'] = 9.99  # To make it obvious there is an error
+                    self.globals['smappees'][dev.id]['exportType'] = 'percentage'
+
+                try:
+                    self.globals['smappees'][dev.id]['exportPercentage'] = float(dev.pluginProps['exportPercentage'])
+                except:
+                    self.globals['smappees'][dev.id]['exportPercentage'] = 50.0  # To make it obvious there is an error
+
+                try:
+                    self.globals['smappees'][dev.id]['exportRate'] = float(dev.pluginProps['exportRate'])
+                except:
+                    self.globals['smappees'][dev.id]['exportRate'] = 9.99  # To make it obvious there is an error
                 if "curEnergyLevel" in dev.states:
-                    wattStr = "%3.0f Watts" % (pluginGlobal['smappees'][dev.id]['curEnergyLevel'])
-                    dev.updateStateOnServer("curEnergyLevel", pluginGlobal['smappees'][dev.id]['curEnergyLevel'], uiValue=wattStr)
+                    wattStr = "%3.0f Watts" % (self.globals['smappees'][dev.id]['curEnergyLevel'])
+                    dev.updateStateOnServer("curEnergyLevel", self.globals['smappees'][dev.id]['curEnergyLevel'],
+                                            uiValue=wattStr)
 
                 if "accumEnergyTotal" in dev.states:
-                    kwhStr = "%3.0f kWh" % (pluginGlobal['smappees'][dev.id]['accumEnergyTotal'])
-                    dev.updateStateOnServer("accumEnergyTotal", pluginGlobal['smappees'][dev.id]['accumEnergyTotal'], uiValue=kwhStr)
+                    kwhStr = "%3.0f kWh" % (self.globals['smappees'][dev.id]['accumEnergyTotal'])
+                    dev.updateStateOnServer("accumEnergyTotal", self.globals['smappees'][dev.id]['accumEnergyTotal'],
+                                            uiValue=kwhStr)
 
                 dev.updateStateOnServer("smappeeSolarOnline", False, uiValue='offline')
 
-                if pluginGlobal['pluginInitialised'] == True and self.serviceLocationId != "":
-                    self.sendToSmappeeQueue.put(["GET_CONSUMPTION",str(self.serviceLocationId)])
+                if self.globals['pluginInitialised'] and self.serviceLocationId != "":
+                    self.globals['queues']['sendToSmappee'].put(["GET_CONSUMPTION", str(self.serviceLocationId)])
 
-                autolog(INFO, u"Started '%s' at address [%s]" % (dev.name, dev.address))
+                self.generalLogger.info(u"Started '%s' at address [%s]" % (dev.name, dev.address))
 
             # Initialise internal to plugin smappee solar used states to default values
             elif dev.deviceTypeId == "smappeeSolarUsed":
 
-                autolog(DETAIL, u"SMAPPEE DEV [SOLAR USED] START smappeeServiceLocationIdToDevId = [%s]" % (pluginGlobal['smappeeServiceLocationIdToDevId']))
+                self.generalLogger.debug(u"SMAPPEE DEV [SOLAR USED] START smappeeServiceLocationIdToDevId = [%s]" % (
+                    self.globals['smappeeServiceLocationIdToDevId']))
 
-                pluginGlobal['config']['supportsSolarUsed'] = True
+                self.globals['config']['supportsSolarUsed'] = True
 
                 self.serviceLocationId = str(dev.pluginProps['serviceLocationId'])
 
-                autolog(DETAIL, u"SMAPPEE DEV [SOLAR USED] START self.serviceLocationId = [%s]" % (self.serviceLocationId))
+                self.generalLogger.debug(
+                    u"SMAPPEE DEV [SOLAR USED] START self.serviceLocationId = [%s]" % self.serviceLocationId)
 
-                self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeSolarUsed', self.serviceLocationId, dev.id, '0', '0')
+                self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeSolarUsed', self.serviceLocationId,
+                                                        dev.id, '0', '0')
 
-                autolog(DETAIL, u"SMAPPEE DEV [SOLAR USED] START smappeeServiceLocationIdToDevId [2] = [%s]" % (pluginGlobal['smappeeServiceLocationIdToDevId']))
+                self.generalLogger.debug(
+                    u"SMAPPEE DEV [SOLAR USED] START smappeeServiceLocationIdToDevId [2] = [%s]" % (
+                        self.globals['smappeeServiceLocationIdToDevId']))
 
-                pluginGlobal['smappees'][dev.id] = {}
-                pluginGlobal['smappees'][dev.id]['serviceLocationId'] = dev.pluginProps['serviceLocationId']
-                pluginGlobal['smappees'][dev.id]['serviceLocationName'] = dev.pluginProps['serviceLocationName']
-                pluginGlobal['smappees'][dev.id]['name'] = dev.name
-                pluginGlobal['smappees'][dev.id]['electricityCost'] = 0
-                pluginGlobal['smappees'][dev.id]['electricityCurrency'] = 0
-                pluginGlobal['smappees'][dev.id]['curEnergyLevel'] = 0.0
-                pluginGlobal['smappees'][dev.id]['accumEnergyTotal'] = 0.0
-                pluginGlobal['smappees'][dev.id]['lastResetSolarUsedUtc'] = 0
-                pluginGlobal['smappees'][dev.id]['lastReadingSolarUsedUtc'] = 0
-                pluginGlobal['smappees'][dev.id]['lastReadingSolarUsed'] = 0.0
-                pluginGlobal['smappees'][dev.id]['hideSolarUsedMeterCurGeneration'] = dev.pluginProps['hideSolarUsedMeterCurGeneration']
-                pluginGlobal['smappees'][dev.id]['hideZeroSolarUsedMeterCurGeneration'] = dev.pluginProps['hideZeroSolarUsedMeterCurGeneration']
-                pluginGlobal['smappees'][dev.id]['hideSolarUsedMeterAccumGeneration'] = dev.pluginProps['hideSolarUsedMeterAccumGeneration']
-                pluginGlobal['smappees'][dev.id]['hideNoChangeInSolarUsedMeterAccumGeneration'] = dev.pluginProps['hideNoChangeInSolarUsedMeterAccumGeneration']
+                self.globals['smappees'][dev.id] = {}
+                self.globals['smappees'][dev.id]['serviceLocationId'] = dev.pluginProps['serviceLocationId']
+                self.globals['smappees'][dev.id]['serviceLocationName'] = dev.pluginProps['serviceLocationName']
+                self.globals['smappees'][dev.id]['name'] = dev.name
+                self.globals['smappees'][dev.id]['electricityCost'] = 0
+                self.globals['smappees'][dev.id]['electricityCurrency'] = 0
+                self.globals['smappees'][dev.id]['curEnergyLevel'] = 0.0
+                self.globals['smappees'][dev.id]['accumEnergyTotal'] = 0.0
+                self.globals['smappees'][dev.id]['lastResetSolarUsedUtc'] = 0
+                self.globals['smappees'][dev.id]['lastReadingSolarUsedUtc'] = 0
+                self.globals['smappees'][dev.id]['lastReadingSolarUsed'] = 0.0
+                self.globals['smappees'][dev.id]['hideSolarUsedMeterCurGeneration'] = dev.pluginProps[
+                    'hideSolarUsedMeterCurGeneration']
+                self.globals['smappees'][dev.id]['hideZeroSolarUsedMeterCurGeneration'] = dev.pluginProps[
+                    'hideZeroSolarUsedMeterCurGeneration']
+                self.globals['smappees'][dev.id]['hideSolarUsedMeterAccumGeneration'] = dev.pluginProps[
+                    'hideSolarUsedMeterAccumGeneration']
+                self.globals['smappees'][dev.id]['hideNoChangeInSolarUsedMeterAccumGeneration'] = dev.pluginProps[
+                    'hideNoChangeInSolarUsedMeterAccumGeneration']
 
                 if "curEnergyLevel" in dev.states:
-                    wattStr = "%3.0f Watts" % (pluginGlobal['smappees'][dev.id]['curEnergyLevel'])
-                    dev.updateStateOnServer("curEnergyLevel", pluginGlobal['smappees'][dev.id]['curEnergyLevel'], uiValue=wattStr)
+                    wattStr = "%3.0f Watts" % (self.globals['smappees'][dev.id]['curEnergyLevel'])
+                    dev.updateStateOnServer("curEnergyLevel", self.globals['smappees'][dev.id]['curEnergyLevel'],
+                                            uiValue=wattStr)
 
                 if "accumEnergyTotal" in dev.states:
-                    kwhStr = "%3.0f kWh" % (pluginGlobal['smappees'][dev.id]['accumEnergyTotal'])
-                    dev.updateStateOnServer("accumEnergyTotal", pluginGlobal['smappees'][dev.id]['accumEnergyTotal'], uiValue=kwhStr)
+                    kwhStr = "%3.0f kWh" % (self.globals['smappees'][dev.id]['accumEnergyTotal'])
+                    dev.updateStateOnServer("accumEnergyTotal", self.globals['smappees'][dev.id]['accumEnergyTotal'],
+                                            uiValue=kwhStr)
 
                 dev.updateStateOnServer("smappeeSolarUsedOnline", False, uiValue='offline')
 
-                # if pluginGlobal['pluginInitialised'] == True and self.serviceLocationId != "":
-                #     self.sendToSmappeeQueue.put(["GET_CONSUMPTION",str(self.serviceLocationId)])
+                # if self.globals['pluginInitialised'] == True and self.serviceLocationId != "":
+                #     self.globals['queues']['sendToSmappee'].put(["GET_CONSUMPTION",str(self.serviceLocationId)])
 
-                autolog(INFO, u"Started '%s' at address [%s]" % (dev.name, dev.address))
+                self.generalLogger.info(u"Started '%s' at address [%s]" % (dev.name, dev.address))
 
             # Initialise internal to plugin smappee solar exported states to default values
             elif dev.deviceTypeId == "smappeeSolarExported":
 
-                autolog(DETAIL, u"SMAPPEE DEV [SOLAR EXPORTED] START smappeeServiceLocationIdToDevId = [%s]" % (pluginGlobal['smappeeServiceLocationIdToDevId']))
+                self.generalLogger.debug(
+                    u"SMAPPEE DEV [SOLAR EXPORTED] START smappeeServiceLocationIdToDevId = [%s]" % (
+                        self.globals['smappeeServiceLocationIdToDevId']))
 
-                pluginGlobal['config']['supportsSolarExported'] = True
+                self.globals['config']['supportsSolarExported'] = True
 
                 self.serviceLocationId = str(dev.pluginProps['serviceLocationId'])
 
-                autolog(DETAIL, u"SMAPPEE DEV [SOLAR EXPORTED] START self.serviceLocationId = [%s]" % (self.serviceLocationId))
+                self.generalLogger.debug(
+                    u"SMAPPEE DEV [SOLAR EXPORTED] START self.serviceLocationId = [%s]" % self.serviceLocationId)
 
-                self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeSolarExported', self.serviceLocationId, dev.id, '0', '0')
+                self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeSolarExported', self.serviceLocationId,
+                                                        dev.id, '0', '0')
 
-                autolog(DETAIL, u"SMAPPEE DEV [SOLAR EXPORTED] START smappeeServiceLocationIdToDevId [2] = [%s]" % (pluginGlobal['smappeeServiceLocationIdToDevId']))
+                self.generalLogger.debug(
+                    u"SMAPPEE DEV [SOLAR EXPORTED] START smappeeServiceLocationIdToDevId [2] = [%s]" % (
+                        self.globals['smappeeServiceLocationIdToDevId']))
 
-                pluginGlobal['smappees'][dev.id] = {}
-                pluginGlobal['smappees'][dev.id]['serviceLocationId'] = dev.pluginProps['serviceLocationId']
-                pluginGlobal['smappees'][dev.id]['serviceLocationName'] = dev.pluginProps['serviceLocationName']
-                pluginGlobal['smappees'][dev.id]['name'] = dev.name
-                pluginGlobal['smappees'][dev.id]['electricityCost'] = 0
-                pluginGlobal['smappees'][dev.id]['electricityCurrency'] = 0
-                pluginGlobal['smappees'][dev.id]['curEnergyLevel'] = 0.0
-                pluginGlobal['smappees'][dev.id]['accumEnergyTotal'] = 0.0
-                pluginGlobal['smappees'][dev.id]['lastResetSolarExportedUtc'] = 0
-                pluginGlobal['smappees'][dev.id]['lastReadingSolarExportedUtc'] = 0
-                pluginGlobal['smappees'][dev.id]['lastReadingSolarExported'] = 0.0
-                pluginGlobal['smappees'][dev.id]['hideSolarExportedMeterCurGeneration'] = dev.pluginProps['hideSolarExportedMeterCurGeneration']
-                pluginGlobal['smappees'][dev.id]['hideZeroSolarExportedMeterCurGeneration'] = dev.pluginProps['hideZeroSolarExportedMeterCurGeneration']
-                pluginGlobal['smappees'][dev.id]['hideSolarExportedMeterAccumGeneration'] = dev.pluginProps['hideSolarExportedMeterAccumGeneration']
-                pluginGlobal['smappees'][dev.id]['hideNoChangeInSolarExportedMeterAccumGeneration'] = dev.pluginProps['hideNoChangeInSolarExportedMeterAccumGeneration']
+                self.globals['smappees'][dev.id] = {}
+                self.globals['smappees'][dev.id]['serviceLocationId'] = dev.pluginProps['serviceLocationId']
+                self.globals['smappees'][dev.id]['serviceLocationName'] = dev.pluginProps['serviceLocationName']
+                self.globals['smappees'][dev.id]['name'] = dev.name
+                self.globals['smappees'][dev.id]['electricityCost'] = 0
+                self.globals['smappees'][dev.id]['electricityCurrency'] = 0
+                self.globals['smappees'][dev.id]['curEnergyLevel'] = 0.0
+                self.globals['smappees'][dev.id]['accumEnergyTotal'] = 0.0
+                self.globals['smappees'][dev.id]['lastResetSolarExportedUtc'] = 0
+                self.globals['smappees'][dev.id]['lastReadingSolarExportedUtc'] = 0
+                self.globals['smappees'][dev.id]['lastReadingSolarExported'] = 0.0
+                self.globals['smappees'][dev.id]['hideSolarExportedMeterCurGeneration'] = dev.pluginProps[
+                    'hideSolarExportedMeterCurGeneration']
+                self.globals['smappees'][dev.id]['hideZeroSolarExportedMeterCurGeneration'] = dev.pluginProps[
+                    'hideZeroSolarExportedMeterCurGeneration']
+                self.globals['smappees'][dev.id]['hideSolarExportedMeterAccumGeneration'] = dev.pluginProps[
+                    'hideSolarExportedMeterAccumGeneration']
+                self.globals['smappees'][dev.id]['hideNoChangeInSolarExportedMeterAccumGeneration'] = dev.pluginProps[
+                    'hideNoChangeInSolarExportedMeterAccumGeneration']
 
                 if "curEnergyLevel" in dev.states:
-                    wattStr = "%3.0f Watts" % (pluginGlobal['smappees'][dev.id]['curEnergyLevel'])
-                    dev.updateStateOnServer("curEnergyLevel", pluginGlobal['smappees'][dev.id]['curEnergyLevel'], uiValue=wattStr)
+                    wattStr = "%3.0f Watts" % (self.globals['smappees'][dev.id]['curEnergyLevel'])
+                    dev.updateStateOnServer("curEnergyLevel", self.globals['smappees'][dev.id]['curEnergyLevel'],
+                                            uiValue=wattStr)
 
                 if "accumEnergyTotal" in dev.states:
-                    kwhStr = "%3.0f kWh" % (pluginGlobal['smappees'][dev.id]['accumEnergyTotal'])
-                    dev.updateStateOnServer("accumEnergyTotal", pluginGlobal['smappees'][dev.id]['accumEnergyTotal'], uiValue=kwhStr)
+                    kwhStr = "%3.0f kWh" % (self.globals['smappees'][dev.id]['accumEnergyTotal'])
+                    dev.updateStateOnServer("accumEnergyTotal", self.globals['smappees'][dev.id]['accumEnergyTotal'],
+                                            uiValue=kwhStr)
 
                 dev.updateStateOnServer("smappeeSolarExportedOnline", False, uiValue='offline')
 
-                # if pluginGlobal['pluginInitialised'] == True and self.serviceLocationId != "":
-                #     self.sendToSmappeeQueue.put(["GET_CONSUMPTION",str(self.serviceLocationId)])
+                # if self.globals['pluginInitialised'] == True and self.serviceLocationId != "":
+                #     self.globals['queues']['sendToSmappee'].put(["GET_CONSUMPTION",str(self.serviceLocationId)])
 
-                autolog(INFO, u"Started '%s' at address [%s]" % (dev.name, dev.address))
+                self.generalLogger.info(u"Started '%s' at address [%s]" % (dev.name, dev.address))
 
             # Initialise internal to plugin smappee sensor states to default values
             elif dev.deviceTypeId == "smappeeSensor":
 
-                autolog(DETAIL, u"SMAPPEE DEV [SENSOR] START-A smappeeServiceLocationIdToDevId = [%s]" % (pluginGlobal['smappeeServiceLocationIdToDevId']))
+                self.generalLogger.debug(u"SMAPPEE DEV [SENSOR] START-A smappeeServiceLocationIdToDevId = [%s]" % (
+                    self.globals['smappeeServiceLocationIdToDevId']))
 
                 self.serviceLocationId = str(dev.pluginProps['serviceLocationId'])
 
-                autolog(DETAIL, u"SMAPPEE DEV [SENSOR] START-B self.serviceLocationId = [%s]" % (self.serviceLocationId))
+                self.generalLogger.debug(
+                    u"SMAPPEE DEV [SENSOR] START-B self.serviceLocationId = [%s]" % self.serviceLocationId)
 
-                self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeSensor', self.serviceLocationId, dev.id,  dev.address, dev.name)
+                self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeSensor', self.serviceLocationId, dev.id,
+                                                        dev.address, dev.name)
 
-                autolog(DETAIL, u"SMAPPEE DEV [SENSOR] START-C smappeeServiceLocationIdToDevId [2] = [%s]" % (pluginGlobal['smappeeServiceLocationIdToDevId']))
+                self.generalLogger.debug(u"SMAPPEE DEV [SENSOR] START-C smappeeServiceLocationIdToDevId [2] = [%s]" % (
+                    self.globals['smappeeServiceLocationIdToDevId']))
 
-                pluginGlobal['smappees'][dev.id] = {}
-                pluginGlobal['smappees'][dev.id]['serviceLocationId'] = dev.pluginProps['serviceLocationId']
-                pluginGlobal['smappees'][dev.id]['serviceLocationName'] = dev.pluginProps['serviceLocationName']
-                pluginGlobal['smappees'][dev.id]['name'] = dev.name
-                pluginGlobal['smappees'][dev.id]['longditude'] = 0
-                pluginGlobal['smappees'][dev.id]['latitude'] = 0
-                pluginGlobal['smappees'][dev.id]['smappeeUnitCost'] = 0
-                pluginGlobal['smappees'][dev.id]['smappeeUnitCurrency'] = 0
-                pluginGlobal['smappees'][dev.id]['curEnergyLevel'] = 0.0
-                pluginGlobal['smappees'][dev.id]['accumEnergyTotal'] = 0.0
-                pluginGlobal['smappees'][dev.id]['dailyTotalCost'] = 0.0
-                pluginGlobal['smappees'][dev.id]['lastResetSensorUtc'] = 0
-                pluginGlobal['smappees'][dev.id]['lastReadingSensorUtc'] = 0
-                pluginGlobal['smappees'][dev.id]['lastReadingSensor'] = 0.0
-                pluginGlobal['smappees'][dev.id]['readingsLastUpdated'] = 'Unknown'
-                pluginGlobal['smappees'][dev.id]['hideEnergyMeterCurPower'] = dev.pluginProps['hideEnergyMeterCurPower']
-                pluginGlobal['smappees'][dev.id]['hideEnergyMeterAccumPower'] = dev.pluginProps['hideEnergyMeterAccumPower']
-                pluginGlobal['smappees'][dev.id]['temperature'] = 0.0
-                pluginGlobal['smappees'][dev.id]['humidity'] = 0.0
-                pluginGlobal['smappees'][dev.id]['batteryLevel'] = 0.0
-                pluginGlobal['smappees'][dev.id]['temperatureLastUpdated'] = 'Unknown'
-                pluginGlobal['smappees'][dev.id]['humidityLastUpdated'] = 'Unknown'
-                pluginGlobal['smappees'][dev.id]['batteryLevelLastUpdated'] = 'Unknown'
+                self.globals['smappees'][dev.id] = {}
+                self.globals['smappees'][dev.id]['serviceLocationId'] = dev.pluginProps['serviceLocationId']
+                self.globals['smappees'][dev.id]['serviceLocationName'] = dev.pluginProps['serviceLocationName']
+                self.globals['smappees'][dev.id]['name'] = dev.name
+                self.globals['smappees'][dev.id]['longditude'] = 0
+                self.globals['smappees'][dev.id]['latitude'] = 0
+                self.globals['smappees'][dev.id]['smappeeUnitCost'] = 0
+                self.globals['smappees'][dev.id]['smappeeUnitCurrency'] = 0
+                self.globals['smappees'][dev.id]['curEnergyLevel'] = 0.0
+                self.globals['smappees'][dev.id]['accumEnergyTotal'] = 0.0
+                self.globals['smappees'][dev.id]['dailyTotalCost'] = 0.0
+                self.globals['smappees'][dev.id]['lastResetSensorUtc'] = 0
+                self.globals['smappees'][dev.id]['lastReadingSensorUtc'] = 0
+                self.globals['smappees'][dev.id]['lastReadingSensor'] = 0.0
+                self.globals['smappees'][dev.id]['readingsLastUpdated'] = 'Unknown'
+                self.globals['smappees'][dev.id]['hideEnergyMeterCurPower'] = dev.pluginProps['hideEnergyMeterCurPower']
+                self.globals['smappees'][dev.id]['hideEnergyMeterAccumPower'] = dev.pluginProps[
+                    'hideEnergyMeterAccumPower']
+                self.globals['smappees'][dev.id]['temperature'] = 0.0
+                self.globals['smappees'][dev.id]['humidity'] = 0.0
+                self.globals['smappees'][dev.id]['batteryLevel'] = 0.0
+                self.globals['smappees'][dev.id]['temperatureLastUpdated'] = 'Unknown'
+                self.globals['smappees'][dev.id]['humidityLastUpdated'] = 'Unknown'
+                self.globals['smappees'][dev.id]['batteryLevelLastUpdated'] = 'Unknown'
 
                 try:
-                    pluginGlobal['smappees'][dev.id]['currencyCode'] = dev.pluginProps['currencyCode']
+                    self.globals['smappees'][dev.id]['currencyCode'] = dev.pluginProps['currencyCode']
                 except:
-                    pluginGlobal['smappees'][dev.id]['currencyCode'] = 'UKP'
+                    self.globals['smappees'][dev.id]['currencyCode'] = 'UKP'
                 try:
-                    pluginGlobal['smappees'][dev.id]['dailyStandingCharge'] = float(dev.pluginProps['dailyStandingCharge'])
+                    self.globals['smappees'][dev.id]['dailyStandingCharge'] = float(
+                        dev.pluginProps['dailyStandingCharge'])
                 except:
-                    pluginGlobal['smappees'][dev.id]['dailyStandingCharge'] = 8.88  # To make it obvious there is an error
+                    self.globals['smappees'][dev.id][
+                        'dailyStandingCharge'] = 8.88  # To make it obvious there is an error
                 try:
-                    pluginGlobal['smappees'][dev.id]['units'] = str(dev.pluginProps['units'])
+                    self.globals['smappees'][dev.id]['units'] = str(dev.pluginProps['units'])
                 except:
-                    pluginGlobal['smappees'][dev.id]['units'] = 'kWh'
+                    self.globals['smappees'][dev.id]['units'] = 'kWh'
                 try:
-                    pluginGlobal['smappees'][dev.id]['pulsesPerUnit'] = str(dev.pluginProps['pulsesPerUnit'])
+                    self.globals['smappees'][dev.id]['pulsesPerUnit'] = str(dev.pluginProps['pulsesPerUnit'])
                 except:
-                    pluginGlobal['smappees'][dev.id]['pulsesPerUnit'] = int(1.0)
+                    self.globals['smappees'][dev.id]['pulsesPerUnit'] = int(1.0)
                 try:
-                    pluginGlobal['smappees'][dev.id]['unitCost'] = float(dev.pluginProps['unitCost'])
+                    self.globals['smappees'][dev.id]['unitCost'] = float(dev.pluginProps['unitCost'])
                 except:
-                    pluginGlobal['smappees'][dev.id]['unitCost'] = 9.99  # To make it obvious there is an error
+                    self.globals['smappees'][dev.id]['unitCost'] = 9.99  # To make it obvious there is an error
 
                 if "readingsLastUpdated" in dev.states:
-                    dev.updateStateOnServer("readingsLastUpdated", pluginGlobal['smappees'][dev.id]['readingsLastUpdated'])
+                    dev.updateStateOnServer("readingsLastUpdated",
+                                            self.globals['smappees'][dev.id]['readingsLastUpdated'])
 
                 if "temperature" in dev.states:
-                    temperatureStr = "%0.1f deg C" % (pluginGlobal['smappees'][dev.id]['temperature'])
-                    temperatureReformatted = float("%0.1f" % (pluginGlobal['smappees'][dev.id]['temperature']))
+                    temperatureStr = "%0.1f deg C" % (self.globals['smappees'][dev.id]['temperature'])
+                    temperatureReformatted = float("%0.1f" % (self.globals['smappees'][dev.id]['temperature']))
                     dev.updateStateOnServer("temperature", temperatureReformatted, uiValue=temperatureStr)
- 
+
                 if "humidity" in dev.states:
-                    humidityStr = "%0.1f%%" % (pluginGlobal['smappees'][dev.id]['humidity'])
-                    humidityReformatted = float("%0.1f" % (pluginGlobal['smappees'][dev.id]['humidity']))
+                    humidityStr = "%0.1f%%" % (self.globals['smappees'][dev.id]['humidity'])
+                    humidityReformatted = float("%0.1f" % (self.globals['smappees'][dev.id]['humidity']))
                     dev.updateStateOnServer("humidity", humidityReformatted, uiValue=humidityStr)
- 
+
                 if "batteryLevel" in dev.states:
-                    batteryLevelStr = "%0.1f%%" % (pluginGlobal['smappees'][dev.id]['batteryLevel'])
-                    batteryLevelReformatted = float("%0.1f" % (pluginGlobal['smappees'][dev.id]['batteryLevel']))
+                    batteryLevelStr = "%0.1f%%" % (self.globals['smappees'][dev.id]['batteryLevel'])
+                    batteryLevelReformatted = float("%0.1f" % (self.globals['smappees'][dev.id]['batteryLevel']))
                     dev.updateStateOnServer("batteryLevel", batteryLevelReformatted, uiValue=batteryLevelStr)
 
                 if "temperatureLastUpdated" in dev.states:
-                    dev.updateStateOnServer("temperatureLastUpdated", pluginGlobal['smappees'][dev.id]['temperatureLastUpdated'])
- 
-                if "humidityLastUpdated" in dev.states:
-                    dev.updateStateOnServer("humidityLastUpdated", pluginGlobal['smappees'][dev.id]['humidityLastUpdated'])
- 
-                if "batteryLevelLastUpdated" in dev.states:
-                    dev.updateStateOnServer("batteryLevelLastUpdated", pluginGlobal['smappees'][dev.id]['batteryLevelLastUpdated'])
+                    dev.updateStateOnServer("temperatureLastUpdated",
+                                            self.globals['smappees'][dev.id]['temperatureLastUpdated'])
 
-                unitsKey = pluginGlobal['smappees'][dev.id]['units']
-                if unitsKey in pluginGlobal['unitTable']:
+                if "humidityLastUpdated" in dev.states:
+                    dev.updateStateOnServer("humidityLastUpdated",
+                                            self.globals['smappees'][dev.id]['humidityLastUpdated'])
+
+                if "batteryLevelLastUpdated" in dev.states:
+                    dev.updateStateOnServer("batteryLevelLastUpdated",
+                                            self.globals['smappees'][dev.id]['batteryLevelLastUpdated'])
+
+                unitsKey = self.globals['smappees'][dev.id]['units']
+                if unitsKey in self.globals['unitTable']:
                     pass
                 else:
                     unitsKey = 'default'
 
-                unitsCurrentUnits              = pluginGlobal['unitTable'][unitsKey]['currentUnits'] 
-                unitsAccumUnits                = pluginGlobal['unitTable'][unitsKey]['accumUnits'] 
-                unitsmeasurementTimeMultiplier = pluginGlobal['unitTable'][unitsKey]['measurementTimeMultiplier']
-                unitsformatTotaldivisor        = pluginGlobal['unitTable'][unitsKey]['formatTotaldivisor']
-                unitsformatCurrent             = pluginGlobal['unitTable'][unitsKey]['formatCurrent']
-                unitsformatCurrentUi           = unitsformatCurrent + u' ' + unitsCurrentUnits
-                unitsformatTotal               = pluginGlobal['unitTable'][unitsKey]['formatTotal']
-                unitsformatTotalUi             = unitsformatTotal + ' ' + unitsAccumUnits
+                unitsCurrentUnits = self.globals['unitTable'][unitsKey]['currentUnits']
+                unitsAccumUnits = self.globals['unitTable'][unitsKey]['accumUnits']
+                unitsmeasurementTimeMultiplier = self.globals['unitTable'][unitsKey]['measurementTimeMultiplier']
+                unitsformatTotaldivisor = self.globals['unitTable'][unitsKey]['formatTotaldivisor']
+                unitsformatCurrent = self.globals['unitTable'][unitsKey]['formatCurrent']
+                unitsformatCurrentUi = unitsformatCurrent + u' ' + unitsCurrentUnits
+                unitsformatTotal = self.globals['unitTable'][unitsKey]['formatTotal']
+                unitsformatTotalUi = unitsformatTotal + ' ' + unitsAccumUnits
 
                 if "curEnergyLevel" in dev.states:
-                    dataToUpdateStr = str(unitsformatCurrentUi % (pluginGlobal['smappees'][dev.id]['curEnergyLevel']))
-                    dev.updateStateOnServer("curEnergyLevel", pluginGlobal['smappees'][dev.id]['curEnergyLevel'], uiValue=dataToUpdateStr)
+                    dataToUpdateStr = str(unitsformatCurrentUi % (self.globals['smappees'][dev.id]['curEnergyLevel']))
+                    dev.updateStateOnServer("curEnergyLevel", self.globals['smappees'][dev.id]['curEnergyLevel'],
+                                            uiValue=dataToUpdateStr)
 
                 if "accumEnergyTotal" in dev.states:
-                    dataToUpdateStr = str(unitsformatTotalUi % (pluginGlobal['smappees'][dev.id]['accumEnergyTotal']))
-                    dev.updateStateOnServer("accumEnergyTotal", pluginGlobal['smappees'][dev.id]['accumEnergyTotal'], uiValue=dataToUpdateStr)
+                    dataToUpdateStr = str(unitsformatTotalUi % (self.globals['smappees'][dev.id]['accumEnergyTotal']))
+                    dev.updateStateOnServer("accumEnergyTotal", self.globals['smappees'][dev.id]['accumEnergyTotal'],
+                                            uiValue=dataToUpdateStr)
 
                 try:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterAccumPowerCost'] = dev.pluginProps['hideEnergyMeterAccumPowerCost']
+                    self.globals['smappees'][dev.id]['hideEnergyMeterAccumPowerCost'] = dev.pluginProps[
+                        'hideEnergyMeterAccumPowerCost']
                 except:
-                    pluginGlobal['smappees'][dev.id]['hideEnergyMeterAccumPowerCost'] = False
+                    self.globals['smappees'][dev.id]['hideEnergyMeterAccumPowerCost'] = False
 
                 dev.updateStateOnServer("smappeeSensorOnline", False, uiValue='offline')
 
-                if  "dailyTotalCost" in dev.states:
-                    costStr = "%3.0f" % (pluginGlobal['smappees'][dev.id]['dailyTotalCost'])
-                    dev.updateStateOnServer("dailyTotalCost", pluginGlobal['smappees'][dev.id]['dailyTotalCost'], uiValue=costStr)
+                if "dailyTotalCost" in dev.states:
+                    costStr = "%3.0f" % (self.globals['smappees'][dev.id]['dailyTotalCost'])
+                    dev.updateStateOnServer("dailyTotalCost", self.globals['smappees'][dev.id]['dailyTotalCost'],
+                                            uiValue=costStr)
 
-                if pluginGlobal['pluginInitialised'] == True and self.serviceLocationId != "":
-                    self.sendToSmappeeQueue.put(["GET_SENSOR_CONSUMPTION",str(self.serviceLocationId)])
+                if self.globals['pluginInitialised'] and self.serviceLocationId != "":
+                    self.globals['queues']['sendToSmappee'].put(["GET_SENSOR_CONSUMPTION", str(self.serviceLocationId)])
 
-                autolog(INFO, u"Started '%s' at address [%s]" % (dev.name, dev.address))
-
+                self.generalLogger.info(u"Started '%s' at address [%s]" % (dev.name, dev.address))
 
             elif dev.deviceTypeId == "smappeeAppliance":
 
                 self.serviceLocationId = str(dev.pluginProps['serviceLocationId'])
 
-                self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeAppliance', self.serviceLocationId, dev.id, dev.address, dev.name)
+                self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeAppliance', self.serviceLocationId,
+                                                        dev.id, dev.address, dev.name)
 
-                pluginGlobal['smappeeAppliances'][dev.id] = {}
-                pluginGlobal['smappeeAppliances'][dev.id]['serviceLocationId'] = dev.pluginProps['serviceLocationId']
-                pluginGlobal['smappeeAppliances'][dev.id]["datetimeStarted"] = indigo.server.getTime()
-                pluginGlobal['smappeeAppliances'][dev.id]['address'] = dev.address
-                pluginGlobal['smappeeAppliances'][dev.id]['onOffState'] = 'off'
-                pluginGlobal['smappeeAppliances'][dev.id]['onOffStateBool'] = False
-                pluginGlobal['smappeeAppliances'][dev.id]['name'] = dev.name
-                pluginGlobal['smappeeAppliances'][dev.id]['curEnergyLevel'] = 0.0
-                pluginGlobal['smappeeAppliances'][dev.id]['accumEnergyTotal'] = 0.0
-                pluginGlobal['smappeeAppliances'][dev.id]['lastResetApplianceUtc'] = 0
-                pluginGlobal['smappeeAppliances'][dev.id]['lastReadingApplianceUtc'] = 0
-                pluginGlobal['smappeeAppliances'][dev.id]['lastReadingAppliance'] = 0.0
+                self.globals['smappeeAppliances'][dev.id] = {}
+                self.globals['smappeeAppliances'][dev.id]['serviceLocationId'] = dev.pluginProps['serviceLocationId']
+                self.globals['smappeeAppliances'][dev.id]["datetimeStarted"] = indigo.server.getTime()
+                self.globals['smappeeAppliances'][dev.id]['address'] = dev.address
+                self.globals['smappeeAppliances'][dev.id]['onOffState'] = 'off'
+                self.globals['smappeeAppliances'][dev.id]['onOffStateBool'] = False
+                self.globals['smappeeAppliances'][dev.id]['name'] = dev.name
+                self.globals['smappeeAppliances'][dev.id]['curEnergyLevel'] = 0.0
+                self.globals['smappeeAppliances'][dev.id]['accumEnergyTotal'] = 0.0
+                self.globals['smappeeAppliances'][dev.id]['lastResetApplianceUtc'] = 0
+                self.globals['smappeeAppliances'][dev.id]['lastReadingApplianceUtc'] = 0
+                self.globals['smappeeAppliances'][dev.id]['lastReadingAppliance'] = 0.0
 
                 if "curEnergyLevel" in dev.states:
-                    wattStr = "%3.0f Watts" % (pluginGlobal['smappeeAppliances'][dev.id]['curEnergyLevel'])
-                    dev.updateStateOnServer("curEnergyLevel", pluginGlobal['smappeeAppliances'][dev.id]['curEnergyLevel'], uiValue=wattStr)
+                    wattStr = "%3.0f Watts" % (self.globals['smappeeAppliances'][dev.id]['curEnergyLevel'])
+                    dev.updateStateOnServer("curEnergyLevel",
+                                            self.globals['smappeeAppliances'][dev.id]['curEnergyLevel'],
+                                            uiValue=wattStr)
 
                 if "accumEnergyTotal" in dev.states:
-                    kwhStr = "%3.0f kWh" % (pluginGlobal['smappeeAppliances'][dev.id]['accumEnergyTotal'])
-                    dev.updateStateOnServer("accumEnergyTotal", pluginGlobal['smappeeAppliances'][dev.id]['accumEnergyTotal'], uiValue=kwhStr)
+                    kwhStr = "%3.0f kWh" % (self.globals['smappeeAppliances'][dev.id]['accumEnergyTotal'])
+                    dev.updateStateOnServer("accumEnergyTotal",
+                                            self.globals['smappeeAppliances'][dev.id]['accumEnergyTotal'],
+                                            uiValue=kwhStr)
 
                 dev.updateStateOnServer("smappeeApplianceEventStatus", "NONE", uiValue="No Events")
                 if float(indigo.server.apiVersion) >= 1.18:
                     dev.updateStateImageOnServer(indigo.kStateImageSel.EnergyMeterOff)
 
-                autolog(INFO, u"Started '%s' at address [%s]" % (dev.name, pluginGlobal['smappeeAppliances'][dev.id]['address']))
-
+                self.generalLogger.info(
+                    u"Started '%s' at address [%s]" % (dev.name, self.globals['smappeeAppliances'][dev.id]['address']))
 
             elif dev.deviceTypeId == "smappeeActuator":
 
                 self.serviceLocationId = str(dev.pluginProps['serviceLocationId'])
 
-                self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeActuator', self.serviceLocationId, dev.id, dev.address, dev.name)
+                self.setSmappeeServiceLocationIdToDevId('ADD_UPDATE', 'smappeeActuator', self.serviceLocationId, dev.id,
+                                                        dev.address, dev.name)
 
-                pluginGlobal['smappeePlugs'][dev.id] = {}
-                pluginGlobal['smappeePlugs'][dev.id]["datetimeStarted"] = indigo.server.getTime()
-                pluginGlobal['smappeePlugs'][dev.id]['address'] = dev.address
-                pluginGlobal['smappeePlugs'][dev.id]['onOffState'] = 'off'
-                pluginGlobal['smappeePlugs'][dev.id]['onOffStateBool'] = False
-                pluginGlobal['smappeePlugs'][dev.id]['name'] = dev.name
+                self.globals['smappeePlugs'][dev.id] = {}
+                self.globals['smappeePlugs'][dev.id]["datetimeStarted"] = indigo.server.getTime()
+                self.globals['smappeePlugs'][dev.id]['address'] = dev.address
+                self.globals['smappeePlugs'][dev.id]['onOffState'] = 'off'
+                self.globals['smappeePlugs'][dev.id]['onOffStateBool'] = False
+                self.globals['smappeePlugs'][dev.id]['name'] = dev.name
 
                 dev.updateStateOnServer("onOffState", False, uiValue='off')
 
-                autolog(INFO, u"Started '%s' at address [%s]" % (dev.name, pluginGlobal['smappeePlugs'][dev.id]['address']))
+                self.generalLogger.info(
+                    u"Started '%s' at address [%s]" % (dev.name, self.globals['smappeePlugs'][dev.id]['address']))
 
-            autolog(DETAIL, u"SMAPPEE DEV [%s] [%s] START smappeeServiceLocationIdToDevId = [%s]" % (dev.name, dev.model, pluginGlobal['smappeeServiceLocationIdToDevId']))
-
+            self.generalLogger.debug(u"SMAPPEE DEV [%s] [%s] START smappeeServiceLocationIdToDevId = [%s]" % (
+                dev.name, dev.model, self.globals['smappeeServiceLocationIdToDevId']))
 
         except StandardError, e:
             exc_type, exc_obj, exc_tb = sys.exc_info()
-            autolog(ERROR, u"deviceStartComm: StandardError detected for '%s' at line '%s' = %s" % (dev.name, exc_tb.tb_lineno,  e))   
+            self.generalLogger.error(
+                u"deviceStartComm: StandardError detected for '%s' at line '%s' = %s" % (dev.name, exc_tb.tb_lineno, e))
 
         return
 
-
     def deviceStopComm(self, dev):
-        global pluginGlobal
-        autolog(METHOD, u"%s" %  (methodNameForTrace()))  
+        self.methodTracer.threaddebug(u"CLASS: Plugin")
 
-
-        pluginGlobal['smappees'][dev.id] = {}
+        self.globals['smappees'][dev.id] = {}
 
         if dev.deviceTypeId == "smappeeElectricity":
             dev.updateStateOnServer("smappeeElectricityOnline", False, uiValue='Stopped')
-            pluginGlobal['config']['supportsElectricity'] = False
+            self.globals['config']['supportsElectricity'] = False
 
         elif dev.deviceTypeId == "smappeeElectricityNet":
             dev.updateStateOnServer("smappeeElectricityNetOnline", False, uiValue='Stopped')
-            pluginGlobal['config']['supportsElectricityNet'] = False
+            self.globals['config']['supportsElectricityNet'] = False
 
         elif dev.deviceTypeId == "smappeeElectricitySaved":
             dev.updateStateOnServer("smappeeElectricitySavedOnline", False, uiValue='Stopped')
-            pluginGlobal['config']['supportsElectricitySaved'] = False
+            self.globals['config']['supportsElectricitySaved'] = False
 
         elif dev.deviceTypeId == "smappeeSolar":
             dev.updateStateOnServer("smappeeSolarOnline", False, uiValue='Stopped')
-            pluginGlobal['config']['supportsSolar'] = False
+            self.globals['config']['supportsSolar'] = False
 
         elif dev.deviceTypeId == "smappeeSolarUsed":
             dev.updateStateOnServer("smappeeSolarUsedOnline", False, uiValue='Stopped')
-            pluginGlobal['config']['supportsSolarUsed'] = False
+            self.globals['config']['supportsSolarUsed'] = False
 
         elif dev.deviceTypeId == "smappeeSolarExported":
             dev.updateStateOnServer("smappeeSolarExportedOnline", False, uiValue='Stopped')
-            pluginGlobal['config']['supportsSolarExported'] = False
+            self.globals['config']['supportsSolarExported'] = False
 
         elif dev.deviceTypeId == "smappeeSensor":
             dev.updateStateOnServer("smappeeSensorOnline", False, uiValue='Stopped')
@@ -5400,8 +5600,7 @@ class Plugin(indigo.PluginBase):
             dev.updateStateOnServer("onOffState", False, uiValue='stopped')
 
         serviceLocationId = dev.pluginProps['serviceLocationId']
-        self.setSmappeeServiceLocationIdToDevId('STOP', dev.deviceTypeId, serviceLocationId, dev.id, dev.address, dev.name)
+        self.setSmappeeServiceLocationIdToDevId('STOP', dev.deviceTypeId, serviceLocationId, dev.id, dev.address,
+                                                dev.name)
 
-
-        autolog(INFO, u"Stopping '%s'" % (dev.name))
-
+        self.generalLogger.info(u"Stopping '%s'" % dev.name)
