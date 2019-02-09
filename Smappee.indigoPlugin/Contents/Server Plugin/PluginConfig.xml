@@ -48,21 +48,6 @@
         </List>
     </Field>
 
-    <Field id="separator-3" type="separator"/>  
-    <Field id="help-2" type="label">
-        <Label>Use Update Check to check for a new release of the Smappee plugin on Github. Use plugin menu to update plugin.</Label>
-    </Field>
-    <Field type="checkbox" id="updateCheck" defaultValue="true" tooltip="Tick to turn on checking for new LIFX plugin version">
-        <Label>Check for updates:</Label>
-        <Description>Enable to check for new version of LIFX plugin.</Description>
-    </Field>
-    <Field id="checkFrequency" type="menu" defaultValue="DAILY" enabledBindingId="updateCheck" tooltip="Select update check frequency">
-        <Label>Check Frequency:</Label>
-        <List>
-            <Option value="DAILY">Check every day</Option>
-            <Option value="WEEKLY">Check every week</Option>
-        </List>
-    </Field>
     <Field id="separator-4" type="separator"/>
     <Field id="help-3" type="label">
         <Label>Specify the Indigo device folder in which to create Smappee devices. Leave empty if device folder not required.</Label>
