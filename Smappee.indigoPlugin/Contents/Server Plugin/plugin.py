@@ -19,7 +19,6 @@ import sys
 import threading
 import time
 
-from ghpu import GitHubPluginUpdater
 from polling import ThreadPolling
 from smappeeInterface import ThreadSmappeeInterface
 
@@ -193,9 +192,6 @@ class Plugin(indigo.PluginBase):
         self.globals['polling']['seconds'] = float(300.0)  # 5 minutes
         self.globals['polling']['threadEnd'] = False
 
-        # Initialise dictionary for update checking
-        self.globals['update'] = {}
-
         # Set Plugin Config Values
         self.closedPrefsConfigUi(pluginPrefs, False)
 
@@ -203,26 +199,8 @@ class Plugin(indigo.PluginBase):
 
         indigo.PluginBase.__del__(self)
 
-    def updatePlugin(self):
-        self.globals['update']['updater'].update()
-
-    def checkForUpdates(self):
-        self.globals['update']['updater'].checkForUpdate()
-
-    def forceUpdate(self):
-        self.globals['update']['updater'].update(currentVersion='0.0.0')
-
-    def checkRateLimit(self):
-        limiter = self.globals['update']['updater'].getRateLimit()
-        indigo.server.log('RateLimit {limit:%d remaining:%d resetAt:%d}' % limiter)
-
     def startup(self):
         self.methodTracer.threaddebug(u"CLASS: Plugin")
-
-        # Set-up update checker
-        self.globals['update'] = dict()
-        self.globals['update']['updater'] = GitHubPluginUpdater(self)
-        self.globals['update']['nextCheckTime'] = time.time()
 
         # Initialise debug  
         self.globals['debug']['general'] = bool(self.pluginPrefs.get("debugGeneral", False))
@@ -303,16 +281,6 @@ class Plugin(indigo.PluginBase):
         try:
             if userCancelled:
                 return
-
-            self.globals['update']['check'] = bool(valuesDict.get("updateCheck", False))
-            self.globals['update']['checkFrequency'] = valuesDict.get("checkFrequency", 'DAILY')
-
-            if self.globals['update']['check']:
-                if self.globals['update']['checkFrequency'] == 'WEEKLY':
-                    self.globals['update']['checkTimeIncrement'] = (7 * 24 * 60 * 60)  # In seconds
-                else:
-                    # DAILY 
-                    self.globals['update']['checkTimeIncrement'] = (24 * 60 * 60)  # In seconds
 
             if "smappeeAddress" in valuesDict:
                 self.globals['config']['address'] = valuesDict["smappeeAddress"]
