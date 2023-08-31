@@ -10,7 +10,7 @@
 
     <Field id="separator-1" type="separator"/>
 
-    <Field id="smappeeAddress" type="textfield" defaultValue="https://app1pub.smappee.net/dev/v1/servicelocation" readonly="true">
+    <Field id="smappeeAddress" type="textfield" defaultValue="https://app1pub.smappee.net/dev/v3/servicelocation" readonly="true">
         <Label>Address:</Label>
     </Field>
     <Field id="smappeeClientId" type="textfield" defaultValue="">
@@ -26,15 +26,30 @@
         <Label>Password:</Label>
     </Field>
 
+
+    <Field id="separator-1-MQTT" type="separator"/>
+
+    <Field id="mqttHost" type="textfield" defaultValue="127.0.0.1" readonly="true">
+        <Label>MQTT Host:</Label>
+    </Field>
+    <Field id="mqttPort" type="textfield" defaultValue="127.0.0.1" readonly="true">
+        <Label>MQTT Port:</Label>
+    </Field>
+    <Field id="mqttClientId" type="textfield" defaultValue="">
+        <Label>MQTT Client ID:</Label>
+    </Field>
+    <Field id="smappeeUuid" type="textfield" defaultValue="" secure="true">
+        <Label>Smappee UUID:</Label>
+    </Field>
+
     <Field id="separator-2" type="separator"/>  
 
     <Field id="help-1" type="label">
-        <Label>Use status polling to update the state of Smappee periodically.</Label>
+        <Label>Use status polling to update the state of Smappee devices periodically.</Label>
     </Field>
     <Field type="checkbox" id="statusPolling" defaultValue="false" tooltip="Tick to turn on Smappee polling">
         <Label>Status polling:</Label>
         <Description>Enable Smappee polling.</Description>
-
     </Field>
     <Field id="pollingSeconds" type="menu" defaultValue="300" enabledBindingId="statusPolling" tooltip="Select polling interval">
         <Label>Poll Smappee:</Label>
@@ -62,25 +77,32 @@
         <Description>Enable debugging options.</Description>
     </Field>
 
-    <Field type="checkbox" id="debugGeneral" defaultValue="false"  visibleBindingId="debugEnabled" visibleBindingValue="true" tooltip="Enable general debugging.">
-        <Label>General:</Label>
-        <Description>Enable general debugging info.</Description>
+    <Field id="header-1" type="label" fontColor="blue" alwaysUseInDialogHeightCalc="true">
+        <Label>LOGGING</Label>
     </Field>
-    <Field type="checkbox" id="debugDeviceFactory" defaultValue="false"  visibleBindingId="debugEnabled" visibleBindingValue="true" tooltip="Enable debugging of device factory processing.">
-        <Label>Device Factory:</Label>
-        <Description>Enable debugging of device factory processing.</Description>
-    </Field>
-    <Field type="checkbox" id="debugSmappeeInterface" defaultValue="false"  visibleBindingId="debugEnabled" visibleBindingValue="true" tooltip="Enable debugging of Smappee interface.">
-        <Label>Smappee Interface:</Label>
-        <Description>Enable debugging of Smappee interface.</Description>
-    </Field>
-    <Field type="checkbox" id="debugMethodTrace" default="false" visibleBindingId="debugEnabled" visibleBindingValue="true">
-        <Label>Method Trace:</Label>
-        <Description>Enable Method trace logging.</Description>
-    </Field>
-    <Field type="checkbox" id="debugPolling" default="false"  visibleBindingId="debugEnabled" visibleBindingValue="true" tooltip="Enable debugging of Smappee polling.">
-        <Label>Polling:</Label>
-        <Description>Enable debugging of Smappee polling.</Description>
+
+	<Field id="eventLogLevel" type="menu" defaultValue="20">
+		<Label>Indigo Event Log Logging Level:</Label>
+		<List>
+			<Option value="10">Debugging Messages</Option>
+			<Option value="20">Informational Messages</Option>
+			<Option value="30">Warning Messages</Option>
+			<Option value="40">Error Messages</Option>
+			<Option value="50">Critical Errors Only</Option>
+		</List>
+	</Field>
+	<Field id="pluginLogLevel" type="menu" defaultValue="20">
+		<Label>Indigo Plugin Log File Logging Level:</Label>
+		<List>
+			<Option value="10">Debugging Messages</Option>
+			<Option value="20">Informational Messages</Option>
+			<Option value="30">Warning Messages</Option>
+			<Option value="40">Error Messages</Option>
+			<Option value="50">Critical Errors Only</Option>
+		</List>
+	</Field>
+    <Field id="help-2" type="label" alignWithControl="true" alwaysUseInDialogHeightCalc="true">
+        <Label>^ Select the logging level to be performed by selecting the required logging option(s) above.</Label>
     </Field>
 
 </PluginConfig>
