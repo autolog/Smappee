@@ -26,7 +26,8 @@ except ImportError:
 # ============================== Plugin Imports ===============================
 from constants import *
 
-# noinspection PyUnresolvedReferences,PyPep8Naming
+
+# noinspection PyUnresolvedReferences,PyPep8Naming,SpellCheckingInspection
 class ThreadSmappeeInterface(threading.Thread):
 
     # This class manages the interface to Smappee
@@ -285,7 +286,7 @@ class ThreadSmappeeInterface(threading.Thread):
                             self.lastReadingSolarExportedDay == self.currentTimeDay and smappeeCommand != COMMAND_RESET_CONSUMPTION:
                         self.fromTimeSolarExportedUtc = str(int(self.globals[SMAPPEES][devSolarExported.id][LAST_READING_SOLAR_EXPORTED_UTC]))
                     else:
-                        from_time_solar_exported_utc = int(time.mktime(datetime.datetime.combine(datetime.date.today(),datetime.time()).timetuple()))
+                        from_time_solar_exported_utc = int(time.mktime(datetime.datetime.combine(datetime.date.today(), datetime.time()).timetuple()))
                         self.fromTimeSolarExportedUtc = f"{from_time_solar_exported_utc}001"
                         self.globals[SMAPPEES][devSolarExported.id][
                             LAST_READING_SOLAR_EXPORTED_UTC] = float(float(self.fromTimeSolarUtc) - 1.0)
@@ -322,7 +323,6 @@ class ThreadSmappeeInterface(threading.Thread):
 
                 if result_ok:
                     self.globals[QUEUES][PROCESS].put([COMMAND_GET_CONSUMPTION, self.serviceLocationId, reply])
-
 
                 # process = subprocess.Popen(
                 #     ['curl', '-H', 'Authorization: Bearer ' + self.globals[CONFIG][ACCESS_TOKEN],
@@ -493,7 +493,6 @@ class ThreadSmappeeInterface(threading.Thread):
                 if result_ok:
                     self.globals[QUEUES][PROCESS].put([COMMAND_GET_EVENTS, self.serviceLocationId, reply])
 
-
                 #
                 # process = subprocess.Popen(
                 #     ['curl', '-H', 'Authorization: Bearer ' + self.globals[CONFIG][ACCESS_TOKEN],
@@ -562,7 +561,6 @@ class ThreadSmappeeInterface(threading.Thread):
 
             if result_ok:
                 self.globals[QUEUES][PROCESS].put([COMMAND_GET_SERVICE_LOCATION_INFO, service_location_id, reply])
-
 
             # self.serviceLocationId = commandToSend[1]
             # process = subprocess.Popen(

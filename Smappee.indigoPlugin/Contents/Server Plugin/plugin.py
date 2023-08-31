@@ -31,7 +31,7 @@ from polling import ThreadPolling
 from smappeeInterface import ThreadSmappeeInterface
 
 
-# noinspection PyPep8Naming,PyUnresolvedReferences
+# noinspection PyPep8Naming,PyUnresolvedReferences,SpellCheckingInspection
 class Plugin(indigo.PluginBase):
 
     def __init__(self, plugin_id, plugin_display_name, plugin_version, plugin_prefs):
@@ -198,7 +198,7 @@ class Plugin(indigo.PluginBase):
     def exception_handler(self, exception_error_message, log_failing_statement):
         filename, line_number, method, statement = traceback.extract_tb(sys.exc_info()[2])[-1]
         module = filename.split('/')
-        log_message = f"'{exception_error_message}' in module '{module[-1]}', method '{method}'"
+        log_message = f"'{exception_error_message}' in module '{module[-1]}', method '{method} [{self.globals[PLUGIN_INFO][PLUGIN_VERSION]}]'"
         if log_failing_statement:
             log_message = log_message + f"\n   Failing statement [line {line_number}]: '{statement}'"
         else:
@@ -281,7 +281,6 @@ class Plugin(indigo.PluginBase):
             # Now set required logging levels
             self.indigo_log_handler.setLevel(event_log_level)
             self.plugin_file_handler.setLevel(plugin_log_level)
-
 
             if "smappeeAddress" in valuesDict:
                 self.globals[CONFIG][ADDRESS] = valuesDict["smappeeAddress"]
@@ -395,7 +394,7 @@ class Plugin(indigo.PluginBase):
             self.listItemsPotentialSmappeeApplianceList = []
             self.listItemsPotentialSmappeeActuatorList = []
     
-            self.monitorDeviceProcessed = False  # Used to detect if a major device electricity / electricity net / electricity saved / Solar / solar used / solar generated / gas or water has beed added or removed - if so the Plugin will restart when the dialogue is closed/cancelled
+            self.monitorDeviceProcessed = False  # Used to detect if a major device electricity / electricity net / electricity saved / Solar / solar used / solar generated / gas or water has been added or removed - if so the Plugin will restart when the dialogue is closed/cancelled
     
             valuesDict["smappeeLocationList"] = 'NONE'
             valuesDict["smappeeApplianceList"] = 'NONE'
@@ -455,7 +454,7 @@ class Plugin(indigo.PluginBase):
             valuesDict = self._prepareGetPotentialSmappeeActuatorList(valuesDict)
     
             self.logger.debug(f"getDeviceFactoryUiValues [END]: EL-Detect=[{self.deviceDetectedSmappeeElectricity}], SO-Detect=[{self.deviceDetectedSmappeeSolar}],"
-                                f"  GW-Detect=[{self.deviceDetectedSmappeeSensor}], AP-Detect=[{self.deviceDetectedSmappeeAppliance}], AC-Detect=[{self.deviceDetectedSmappeeActuator}]")
+                              f"  GW-Detect=[{self.deviceDetectedSmappeeSensor}], AP-Detect=[{self.deviceDetectedSmappeeAppliance}], AC-Detect=[{self.deviceDetectedSmappeeActuator}]")
     
             return valuesDict, errorMsgDict
         
@@ -577,7 +576,7 @@ class Plugin(indigo.PluginBase):
                     listToDisplay.insert(0, ("NONE", "- Select Smappee Location -"))
     
                 if self.locationCount == 1:
-                    # As only one location, don't display list and skip striaght to displaying value
+                    # As only one location, don't display list and skip straight to displaying value
                     valuesDict["hideSmappeeLocationValue"] = "false"
                     valuesDict["hideSmappeeLocationList"] = "true"
     
@@ -826,7 +825,7 @@ class Plugin(indigo.PluginBase):
                         self.globals[CONFIG][SUPPORTS_ELECTRICITY] = False
     
                         self.logger.debug("_removeSmappeeElectricityDevice = DELETED")
-                except:
+                except Exception as exception_error:
                     self.logger.debug("_removeSmappeeElectricityDevice = EXCEPTION")
                     pass  # delete doesn't allow (throws) on root elem
     
@@ -902,7 +901,7 @@ class Plugin(indigo.PluginBase):
                         self.globals[CONFIG][SUPPORTS_ELECTRICITY_NET] = False
     
                         self.logger.debug("_removeSmappeeElectricityNetDevice = DELETED")
-                except:
+                except Exception as exception_error:
                     self.logger.debug("_removeSmappeeElectricityNetDevice = EXCEPTION")
                     pass  # delete doesn't allow (throws) on root elem
     
@@ -977,7 +976,7 @@ class Plugin(indigo.PluginBase):
                         self.globals[CONFIG][SUPPORTS_ELECTRICITY_SAVED] = False
     
                         self.logger.debug("_removeSmappeeElectricitySavedDevice = DELETED")
-                except:
+                except Exception as exception_error:
                     self.logger.debug("_removeSmappeeElectricitySavedDevice = EXCEPTION")
                     pass  # delete doesn't allow (throws) on root elem
     
@@ -1056,7 +1055,7 @@ class Plugin(indigo.PluginBase):
                         self.globals[CONFIG][SUPPORTS_SOLAR] = False
     
                         self.logger.debug("_removeSmappeeSolarDevice = DELETED")
-                except:
+                except Exception as exception_error:
                     self.logger.debug("_removeSmappeeSolarDevice = EXCEPTION")
                     pass  # delete doesn't allow (throws) on root elem
     
@@ -1131,7 +1130,7 @@ class Plugin(indigo.PluginBase):
                         self.globals[CONFIG][SUPPORTS_SOLAR_USED] = False
     
                         self.logger.debug("_removeSmappeeSolarUsedDevice = DELETED")
-                except:
+                except Exception as exception_error:
                     self.logger.debug("_removeSmappeeSolarUsedDevice = EXCEPTION")
                     pass  # delete doesn't allow (throws) on root elem
     
@@ -1206,7 +1205,7 @@ class Plugin(indigo.PluginBase):
                         self.globals[CONFIG][SUPPORTS_SOLAR_EXPORTED] = False
     
                         self.logger.debug("_removeSmappeeSolarExportedDevice = DELETED")
-                except:
+                except Exception as exception_error:
                     self.logger.debug("_removeSmappeeSolarExportedDevice = EXCEPTION")
                     pass  # delete doesn't allow (throws) on root elem
     
@@ -1386,7 +1385,7 @@ class Plugin(indigo.PluginBase):
                         potentialApplianceAddress][NAME]
                 if not self.globals[SMAPPEE_SERVICE_LOCATION_ID_TO_DEV_ID][self.smappeeServiceLocationId][APPLIANCE_IDS][
                         potentialApplianceAddress][QUEUED_ADD]:
-                    self.setSmappeeServiceLocationIdToDevId(FUNCTION_QUEUE_ADD, 'smappeeAppliance', self.smappeeServiceLocationId,0, potentialApplianceAddress, potentialApplianceName)
+                    self.setSmappeeServiceLocationIdToDevId(FUNCTION_QUEUE_ADD, 'smappeeAppliance', self.smappeeServiceLocationId, 0, potentialApplianceAddress, potentialApplianceName)
                 else:
                     self.setSmappeeServiceLocationIdToDevId(FUNCTION_DEQUEUE, 'smappeeAppliance', self.smappeeServiceLocationId, 0, potentialApplianceAddress, potentialApplianceName)
 
@@ -1973,23 +1972,24 @@ class Plugin(indigo.PluginBase):
                                 self.logger.debug(f"handleSmappeeResponse [J] Checking new Smappee Service Location Id: [{self.serviceLocationId}]"
                                                   f" against known Smappee Sensor Device with Address [{smappeeDev.address}]")
                                 if smappeeDev.pluginProps["serviceLocationId"] == self.serviceLocationId:
-                                    if self.serviceLocationDetails[SENSOR_IDS][smappeeDev.address] == 0:
-                                        self.globals[SMAPPEE_SERVICE_LOCATION_ID_TO_DEV_ID][self.serviceLocationId][SENSOR_IDS][smappeeDev.address] = {'name': smappeeDev.name, 'devId': smappeeDev.id}
-                                   # else:
-                                   #     if self.serviceLocationDetails[SENSOR_IDS] != smappeeDev.id:
-                                   #        self.logger.error(f"DUPLICATE SMAPPEE SENSOR DEVICE / LOCATION. L=[{self.serviceLocationId}],"
-                                   #                                 f" D1=[{self.globals[SMAPPEE_SERVICE_LOCATION_ID_TO_DEV_ID][self.serviceLocationId][ELECTRICITY_ID]}], D2=[{smappeeDev.id}]")
-
+                                    if smappeeDev.address in self.serviceLocationDetails[SENSOR_IDS]:
+                                        if self.serviceLocationDetails[SENSOR_IDS][smappeeDev.address] == 0:
+                                            self.globals[SMAPPEE_SERVICE_LOCATION_ID_TO_DEV_ID][self.serviceLocationId][SENSOR_IDS][smappeeDev.address] = {'name': smappeeDev.name, 'devId': smappeeDev.id}
+                                    # else:
+                                    #     if self.serviceLocationDetails[SENSOR_IDS] != smappeeDev.id:
+                                    #        self.logger.error(f"DUPLICATE SMAPPEE SENSOR DEVICE / LOCATION. L=[{self.serviceLocationId}],"
+                                    #                                 f" D1=[{self.globals[SMAPPEE_SERVICE_LOCATION_ID_TO_DEV_ID][self.serviceLocationId][ELECTRICITY_ID]}], D2=[{smappeeDev.id}]")
+                                
                             elif smappeeDev.deviceTypeId == "smappeeAppliance":
                                 self.logger.debug(f"handleSmappeeResponse [J] Checking new Smappee Service Location Id: [{self.serviceLocationId}]"
                                                   f" against known Smappee Appliance Device with Address [{smappeeDev.address}]")
                                 if smappeeDev.pluginProps["serviceLocationId"] == self.serviceLocationId:
                                     if self.serviceLocationDetails[APPLIANCE_IDS][smappeeDev.address] == 0:
                                         self.globals[SMAPPEE_SERVICE_LOCATION_ID_TO_DEV_ID][self.serviceLocationId][APPLIANCE_IDS][smappeeDev.address] = {'name': smappeeDev.name, 'devId': smappeeDev.id}
-                                   # else:
-                                   #     if self.serviceLocationDetails['electricity'] != smappeeDev.id:
-                                   #        self.logger.error(f"DUPLICATE SMAPPEE APPLIANCE DEVICE / LOCATION. L=[{self.serviceLocationId}],"
-                                   #                                 f" D1=[{self.globals[SMAPPEE_SERVICE_LOCATION_ID_TO_DEV_ID][self.serviceLocationId][ELECTRICITY_ID]}], D2=[{smappeeDev.id}]")
+                                    # else:
+                                    #     if self.serviceLocationDetails['electricity'] != smappeeDev.id:
+                                    #        self.logger.error(f"DUPLICATE SMAPPEE APPLIANCE DEVICE / LOCATION. L=[{self.serviceLocationId}],"
+                                    #                                 f" D1=[{self.globals[SMAPPEE_SERVICE_LOCATION_ID_TO_DEV_ID][self.serviceLocationId][ELECTRICITY_ID]}], D2=[{smappeeDev.id}]")
 
                             elif smappeeDev.deviceTypeId == "smappeeActuator":
                                 self.logger.debug(f"handleSmappeeResponse [J] Checking new Smappee Service Location Id: [{self.serviceLocationId}]"
@@ -1997,10 +1997,10 @@ class Plugin(indigo.PluginBase):
                                 if smappeeDev.pluginProps["serviceLocationId"] == self.serviceLocationId:
                                     if self.serviceLocationDetails[ACTUATOR_IDS][smappeeDev.address] == 0:
                                         self.globals[SMAPPEE_SERVICE_LOCATION_ID_TO_DEV_ID][self.serviceLocationId][ACTUATOR_IDS][smappeeDev.address] = {'name': smappeeDev.name, 'devId': smappeeDev.id}
-                                   # else:
-                                   #     if self.serviceLocationDetails['electricity'] != smappeeDev.id:
-                                   #         self.logger.error(f"DUPLICATE SMAPPEE ACTUATOR DEVICE / LOCATION. L=[{self.serviceLocationId}],"
-                                   #                                  f" D1=[{self.globals[SMAPPEE_SERVICE_LOCATION_ID_TO_DEV_ID][self.serviceLocationId][ELECTRICITY_ID]}], D2=[{smappeeDev.id}]")
+                                    # else:
+                                    #     if self.serviceLocationDetails['electricity'] != smappeeDev.id:
+                                    #         self.logger.error(f"DUPLICATE SMAPPEE ACTUATOR DEVICE / LOCATION. L=[{self.serviceLocationId}],"
+                                    #                                  f" D1=[{self.globals[SMAPPEE_SERVICE_LOCATION_ID_TO_DEV_ID][self.serviceLocationId][ELECTRICITY_ID]}], D2=[{smappeeDev.id}]")
 
                         self.logger.debug(f"handleSmappeeResponse [HH][SERVICELOCATION DETAILS]: {self.serviceLocationId} = {self.serviceLocationDetails}")
 
@@ -2090,7 +2090,7 @@ class Plugin(indigo.PluginBase):
                                             smappeeSensorDev = indigo.devices[self.globals[SMAPPEE_SERVICE_LOCATION_ID_TO_DEV_ID][responseLocationId][SENSOR_IDS][sensorId][DEV_ID]]
                                             if not smappeeSensorDev.states['smappeeSensorOnline']:
                                                 smappeeSensorDev.updateStateOnServer("smappeeSensorOnline", True, uiValue='online')
-                                        except:
+                                        except Exception as exception_error:
                                             pass
                                 else:
                                     # Can be either Gas or Water
@@ -2134,7 +2134,7 @@ class Plugin(indigo.PluginBase):
                                             self.globals[SMAPPEE_SERVICE_LOCATION_ID_TO_DEV_ID][responseLocationId][APPLIANCE_IDS][self.applianceId][DEV_ID]]
                                         if not smappeeApplianceDev.states['smappeeApplianceOnline']:
                                             smappeeApplianceDev.updateStateOnServer("smappeeApplianceOnline", True, uiValue='online')
-                                    except:
+                                    except Exception as exception_error:
                                         pass
                             else:
                                 self.setSmappeeServiceLocationIdToDevId(FUNCTION_ADD_UPDATE, 'smappeeAppliance', responseLocationId, 0, self.applianceId, self.applianceName)
@@ -2440,7 +2440,6 @@ class Plugin(indigo.PluginBase):
                                 lrutc = datetime.datetime.fromtimestamp(int(int(self.lastReadingElectricitySavedUtc) / 1000)).strftime("%Y-%m-%d %H:%M:%S")
                                 tsutc = datetime.datetime.fromtimestamp(int(int(self.timestampUtc) / 1000)).strftime("%Y-%m-%d %H:%M:%S")
                                 self.logger.debug(f"'SAVED'.          LRUTC: {lrutc}, TSUTC: {tsutc}, Saved: {self.electricitySaved}")
-
 
                             if self.globals[CONFIG][SUPPORTS_SOLAR]:
                                 if self.timestampUtc > self.lastReadingSolarUtc:
@@ -2751,7 +2750,7 @@ class Plugin(indigo.PluginBase):
                             else:
                                 netPercentage = int(0)
                             netPercentageStr = f"{int(netPercentage)}%"
-                            devElectricityNet.updateStateOnServer("kwhCurrentNetPercentage", netPercentage,uiValue=netPercentageStr)
+                            devElectricityNet.updateStateOnServer("kwhCurrentNetPercentage", netPercentage, uiValue=netPercentageStr)
 
                         if "accumEnergyTotal" in devElectricityNet.states:
                             if commandSentToSmappee == COMMAND_RESET_CONSUMPTION:
@@ -4030,28 +4029,28 @@ class Plugin(indigo.PluginBase):
             try:
                 if "hideEnergyMeterCurPower" in valuesDict:
                     self.globals[SMAPPEES][devId][HIDE_ENERGY_METER_CURRENT_POWER] = valuesDict["hideEnergyMeterCurPower"]
-            except:
+            except Exception as exception_error:
                 self.globals[SMAPPEES][devId][HIDE_ENERGY_METER_CURRENT_POWER] = False
 
             self.globals[SMAPPEES][devId][HIDE_ENERGY_METER_ACCUMULATED_POWER] = False
             try:
                 if "hideEnergyMeterAccumPower" in valuesDict:
                     self.globals[SMAPPEES][devId][HIDE_ENERGY_METER_ACCUMULATED_POWER] = valuesDict["hideEnergyMeterAccumPower"]
-            except:
+            except Exception as exception_error:
                 self.globals[SMAPPEES][devId][HIDE_ENERGY_METER_ACCUMULATED_POWER] = False
 
             self.globals[SMAPPEES][devId][HIDE_ALWAYS_ON_POWER] = False
             try:
                 if "hideEnergyMeterAccumPowerCost" in valuesDict:
                     self.globals[SMAPPEES][devId][HIDE_ENERGY_METER_ACCUMULATED_POWER_COST] = valuesDict["hideEnergyMeterAccumPowerCost"]
-            except:
+            except Exception as exception_error:
                 self.globals[SMAPPEES][devId][HIDE_ENERGY_METER_ACCUMULATED_POWER_COST] = False
 
             self.globals[SMAPPEES][devId][HIDE_ALWAYS_ON_POWER] = False
             try:
                 if "hideAlwaysOnPower" in valuesDict:
                     self.globals[SMAPPEES][devId][HIDE_ALWAYS_ON_POWER] = valuesDict["hideAlwaysOnPower"]
-            except:
+            except Exception as exception_error:
                 self.globals[SMAPPEES][devId][HIDE_ALWAYS_ON_POWER] = False
 
             try:
@@ -4059,7 +4058,7 @@ class Plugin(indigo.PluginBase):
                     self.globals[SMAPPEES][dev.id][CURRENCY_CODE] = valuesDict["currencyCode"]
                 else:
                     self.globals[SMAPPEES][devId][CURRENCY_CODE] = "UKP"
-            except:
+            except Exception as exception_error:
                 self.globals[SMAPPEES][devId][CURRENCY_CODE] = "UKP"
 
             try:
@@ -4070,12 +4069,12 @@ class Plugin(indigo.PluginBase):
                         try:
                             self.globals[SMAPPEES][devId][DAILY_STANDING_CHARGE] = float(
                                 valuesDict["dailyStandingCharge"])
-                        except:
+                        except Exception as exception_error:
                             self.globals[SMAPPEES][devId][DAILY_STANDING_CHARGE] = 0.00
                             validConfig = False
                 else:
                     self.globals[SMAPPEES][devId][DAILY_STANDING_CHARGE] = 0.00
-            except:
+            except Exception as exception_error:
                 self.globals[SMAPPEES][devId][DAILY_STANDING_CHARGE] = 0.00
                 validConfig = False
 
@@ -4092,12 +4091,12 @@ class Plugin(indigo.PluginBase):
                     else:
                         try:
                             self.globals[SMAPPEES][devId][KWH_UNIT_COST] = float(valuesDict["kwhUnitCost"])
-                        except:
+                        except Exception as exception_error:
                             self.globals[SMAPPEES][devId][KWH_UNIT_COST] = 0.00
                             validConfig = False
                 else:
                     self.globals[SMAPPEES][devId][KWH_UNIT_COST] = 0.00
-            except:
+            except Exception as exception_error:
                 self.globals[SMAPPEES][devId][KWH_UNIT_COST] = 0.00
                 validConfig = False
 
@@ -4118,14 +4117,14 @@ class Plugin(indigo.PluginBase):
             try:
                 if "hideSolarMeterCurGeneration" in valuesDict:
                     self.globals[SMAPPEES][devId][HIDE_SOLAR_METER_CURRENT_GENERATION] = valuesDict["hideSolarMeterCurGeneration"]
-            except:
+            except Exception as exception_error:
                 self.globals[SMAPPEES][devId][HIDE_SOLAR_METER_CURRENT_GENERATION] = False
 
             self.globals[SMAPPEES][devId][HIDE_SOLAR_METER_ACCUMULATED_GENERATION] = False
             try:
                 if "hideSolarMeterAccumGeneration" in valuesDict:
                     self.globals[SMAPPEES][devId][HIDE_SOLAR_METER_ACCUMULATED_GENERATION] = valuesDict["hideSolarMeterAccumGeneration"]
-            except:
+            except Exception as exception_error:
                 self.globals[SMAPPEES][devId][HIDE_SOLAR_METER_ACCUMULATED_GENERATION] = False
 
             return True, valuesDict
@@ -4141,28 +4140,28 @@ class Plugin(indigo.PluginBase):
             try:
                 if "hideEnergyMeterCurPower" in valuesDict:
                     self.globals[SMAPPEES][devId][HIDE_ENERGY_METER_CURRENT_POWER] = valuesDict["hideEnergyMeterCurPower"]
-            except:
+            except Exception as exception_error:
                 self.globals[SMAPPEES][devId][HIDE_ENERGY_METER_CURRENT_POWER] = False
 
             self.globals[SMAPPEES][devId][HIDE_ENERGY_METER_ACCUMULATED_POWER] = False
             try:
                 if "hideEnergyMeterAccumPower" in valuesDict:
                     self.globals[SMAPPEES][devId][HIDE_ENERGY_METER_ACCUMULATED_POWER] = valuesDict["hideEnergyMeterAccumPower"]
-            except:
+            except Exception as exception_error:
                 self.globals[SMAPPEES][devId][HIDE_ENERGY_METER_ACCUMULATED_POWER] = False
 
             self.globals[SMAPPEES][devId][HIDE_ALWAYS_ON_POWER] = False
             try:
                 if "hideEnergyMeterAccumPowerCost" in valuesDict:
                     self.globals[SMAPPEES][devId][HIDE_ENERGY_METER_ACCUMULATED_POWER_COST] = valuesDict["hideEnergyMeterAccumPowerCost"]
-            except:
+            except Exception as exception_error:
                 self.globals[SMAPPEES][devId][HIDE_ENERGY_METER_ACCUMULATED_POWER_COST] = False
 
             self.globals[SMAPPEES][devId][HIDE_ALWAYS_ON_POWER] = False
             try:
                 if "hideAlwaysOnPower" in valuesDict:
                     self.globals[SMAPPEES][devId][HIDE_ALWAYS_ON_POWER] = valuesDict["hideAlwaysOnPower"]
-            except:
+            except Exception as exception_error:
                 self.globals[SMAPPEES][devId][HIDE_ALWAYS_ON_POWER] = False
 
             try:
@@ -4170,7 +4169,7 @@ class Plugin(indigo.PluginBase):
                     self.globals[SMAPPEES][devId][CURRENCY_CODE] = valuesDict[CURRENCY_CODE]
                 else:
                     self.globals[SMAPPEES][devId][CURRENCY_CODE] = 'UKP'
-            except:
+            except Exception as exception_error:
                 self.globals[SMAPPEES][devId][CURRENCY_CODE] = 'UKP'
 
             try:
@@ -4180,12 +4179,12 @@ class Plugin(indigo.PluginBase):
                     else:
                         try:
                             self.globals[SMAPPEES][devId][DAILY_STANDING_CHARGE] = float(valuesDict["dailyStandingCharge"])
-                        except:
+                        except Exception as exception_error:
                             self.globals[SMAPPEES][devId][DAILY_STANDING_CHARGE] = 0.00
                             validConfig = False
                 else:
                     self.globals[SMAPPEES][devId][DAILY_STANDING_CHARGE] = 0.00
-            except:
+            except Exception as exception_error:
                 self.globals[SMAPPEES][devId][DAILY_STANDING_CHARGE] = 0.00
                 validConfig = False
 
@@ -4202,12 +4201,12 @@ class Plugin(indigo.PluginBase):
                     else:
                         try:
                             self.globals[SMAPPEES][devId][KWH_UNIT_COST] = float(valuesDict["unitCost"])
-                        except:
+                        except Exception as exception_error:
                             self.globals[SMAPPEES][devId][KWH_UNIT_COST] = 0.00
                             validConfig = False
                 else:
                     self.globals[SMAPPEES][devId][KWH_UNIT_COST] = 0.00
-            except:
+            except Exception as exception_error:
                 self.globals[SMAPPEES][devId][KWH_UNIT_COST] = 0.00
                 validConfig = False
 
@@ -4265,31 +4264,31 @@ class Plugin(indigo.PluginBase):
                     self.globals[SMAPPEES][dev.id][LAST_READING_ELECTRICITY] = 0.0
                     try:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_CURRENT_POWER] = dev.pluginProps["hideEnergyMeterCurPower"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_CURRENT_POWER] = False
                     try:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_ACCUMULATED_POWER] = dev.pluginProps["hideEnergyMeterAccumPower"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_ACCUMULATED_POWER] = False
                     try:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_ACCUMULATED_POWER_COST] = dev.pluginProps["hideEnergyMeterAccumPowerCost"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_ACCUMULATED_POWER_COST] = False
                     try:
                         self.globals[SMAPPEES][dev.id][HIDE_ALWAYS_ON_POWER] = dev.pluginProps["hideAlwaysOnPower"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][HIDE_ALWAYS_ON_POWER] = False
                     try:
                         self.globals[SMAPPEES][dev.id][CURRENCY_CODE] = dev.pluginProps["currencyCode"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][CURRENCY_CODE] = 'UKP'
                     try:
                         self.globals[SMAPPEES][dev.id][DAILY_STANDING_CHARGE] = float(dev.pluginProps["dailyStandingCharge"])
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][DAILY_STANDING_CHARGE] = 8.88  # To make it obvious there is an error
                     try:
                         self.globals[SMAPPEES][dev.id][KWH_UNIT_COST] = float(dev.pluginProps["kwhUnitCost"])
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][KWH_UNIT_COST] = 9.99  # To make it obvious there is an error
 
                     if "curEnergyLevel" in dev.states:
@@ -4346,23 +4345,23 @@ class Plugin(indigo.PluginBase):
                     self.globals[SMAPPEES][dev.id][LAST_READING_ELECTRICITY_NET] = 0.0
                     try:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_CURRENT_NET_POWER] = dev.pluginProps["hideEnergyMeterCurNetPower"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_CURRENT_NET_POWER] = False
                     try:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_CURRENT_ZERO_NET_POWER] = dev.pluginProps["hideEnergyMeterCurZeroNetPower"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_CURRENT_ZERO_NET_POWER] = False
                     try:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_ACCUMULATED_NET_POWER] = dev.pluginProps["hideEnergyMeterAccumNetPower"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_ACCUMULATED_NET_POWER] = False
                     try:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_ACCUMULATED_NET_POWER_COST] = dev.pluginProps["hideEnergyMeterAccumNetPowerCost"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_ACCUMULATED_NET_POWER_COST] = False
                     try:
                         self.globals[SMAPPEES][dev.id]['hideNoChangeEnergyMeterAccumNetPower'] = dev.pluginProps["hideNoChangeEnergyMeterAccumNetPower"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id]['hideNoChangeEnergyMeterAccumNetPower'] = False
 
                     if "curEnergyLevel" in dev.states:
@@ -4413,23 +4412,23 @@ class Plugin(indigo.PluginBase):
                     self.globals[SMAPPEES][dev.id][LAST_READING_ELECTRICITY_SAVED] = 0.0
                     try:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_CURRENT_SAVED_POWER] = dev.pluginProps["hideEnergyMeterCurSavedPower"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_CURRENT_SAVED_POWER] = False
                     try:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_CURRENT_ZERO_NET_POWER] = dev.pluginProps["hideEnergyMeterCurZeroSavedPower"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_CURRENT_ZERO_NET_POWER] = False
                     try:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_ACCUMULATED_SAVED_POWER] = dev.pluginProps["hideEnergyMeterAccumSavedPower"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_ACCUMULATED_SAVED_POWER] = False
                     try:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_ACCUMULATED_SAVED_POWER_COST] = dev.pluginProps["hideEnergyMeterAccumSavedPowerCost"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_ACCUMULATED_SAVED_POWER_COST] = False
                     try:
                         self.globals[SMAPPEES][dev.id][HIDE_NO_CHANGE_ENERGY_METER_ACCUMULATED_SAVED_POWER] = dev.pluginProps["hideNoChangeEnergyMeterAccumSavedPower"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][HIDE_NO_CHANGE_ENERGY_METER_ACCUMULATED_SAVED_POWER] = False
 
                     if "curEnergyLevel" in dev.states:
@@ -4479,46 +4478,46 @@ class Plugin(indigo.PluginBase):
                     self.globals[SMAPPEES][dev.id][LAST_READING_SOLAR] = 0.0
                     try:
                         self.globals[SMAPPEES][dev.id][HIDE_SOLAR_METER_CURRENT_GENERATION] = dev.pluginProps["hideSolarMeterCurGeneration"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][HIDE_SOLAR_METER_CURRENT_GENERATION] = False
                     try:
                         self.globals[SMAPPEES][dev.id][HIDE_ZERO_SOLAR_METER_CURRENT_GENERATION] = dev.pluginProps["hideZeroSolarMeterCurGeneration"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][HIDE_ZERO_SOLAR_METER_CURRENT_GENERATION] = False
                     try:
                         self.globals[SMAPPEES][dev.id][HIDE_SOLAR_METER_ACCUMULATED_GENERATION] = dev.pluginProps["hideSolarMeterAccumGeneration"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][HIDE_SOLAR_METER_ACCUMULATED_GENERATION] = False
                     try:
                         self.globals[SMAPPEES][dev.id][HIDE_SOLAR_METER_ACCUMULATED_GENERATION_COST] = dev.pluginProps["hideSolarMeterAccumGenerationCost"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][HIDE_SOLAR_METER_ACCUMULATED_GENERATION_COST] = False
                     try:
                         self.globals[SMAPPEES][dev.id][HIDE_NO_CHANGE_IN_SOLAR_METER_ACCUMULATED_GENERATION] = dev.pluginProps["hideNoChangeInSolarMeterAccumGeneration"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][HIDE_NO_CHANGE_IN_SOLAR_METER_ACCUMULATED_GENERATION] = False
                     try:
                         self.globals[SMAPPEES][dev.id][CURRENCY_CODE] = dev.pluginProps["currencyCode"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][CURRENCY_CODE] = 'UKP'
                     try:
                         self.globals[SMAPPEES][dev.id][GENERATION_RATE] = float(dev.pluginProps["generationRate"])
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][GENERATION_RATE] = 8.88  # To make it obvious there is an error
 
                     try:
                         self.globals[SMAPPEES][dev.id][EXPORT_TYPE] = dev.pluginProps["exportType"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][EXPORT_TYPE] = 'percentage'
 
                     try:
                         self.globals[SMAPPEES][dev.id][EXPORT_PERCENTAGE] = float(dev.pluginProps["exportPercentage"])
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][EXPORT_PERCENTAGE] = 50.0  # To make it obvious there is an error
 
                     try:
                         self.globals[SMAPPEES][dev.id][EXPORT_RATE] = float(dev.pluginProps["exportRate"])
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][EXPORT_RATE] = 9.99  # To make it obvious there is an error
                     if "curEnergyLevel" in dev.states:
                         wattStr = f"{self.globals[SMAPPEES][dev.id][CURRENT_ENERGY_LEVEL]:3.0f} Watts"
@@ -4665,23 +4664,23 @@ class Plugin(indigo.PluginBase):
 
                     try:
                         self.globals[SMAPPEES][dev.id][CURRENCY_CODE] = dev.pluginProps["currencyCode"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][CURRENCY_CODE] = 'UKP'
                     try:
                         self.globals[SMAPPEES][dev.id][DAILY_STANDING_CHARGE] = float(dev.pluginProps["dailyStandingCharge"])
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][DAILY_STANDING_CHARGE] = 8.88  # To make it obvious there is an error
                     try:
                         self.globals[SMAPPEES][dev.id][UNITS] = str(dev.pluginProps["units"])
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][UNITS] = 'kWh'
                     try:
                         self.globals[SMAPPEES][dev.id][PULSES_PER_UNIT] = str(dev.pluginProps["pulsesPerUnit"])
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][PULSES_PER_UNIT] = int(1.0)
                     try:
                         self.globals[SMAPPEES][dev.id][UNIT_COST] = float(dev.pluginProps["unitCost"])
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][UNIT_COST] = 9.99  # To make it obvious there is an error
 
                     if "readingsLastUpdated" in dev.states:
@@ -4736,7 +4735,7 @@ class Plugin(indigo.PluginBase):
 
                     try:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_ACCUMULATED_POWER_COST] = dev.pluginProps["hideEnergyMeterAccumPowerCost"]
-                    except:
+                    except Exception as exception_error:
                         self.globals[SMAPPEES][dev.id][HIDE_ENERGY_METER_ACCUMULATED_POWER_COST] = False
 
                     dev.updateStateOnServer("smappeeSensorOnline", False, uiValue='offline')
