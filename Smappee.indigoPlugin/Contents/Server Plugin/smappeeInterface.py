@@ -622,9 +622,10 @@ class ThreadSmappeeInterface(threading.Thread):
 
                 process = subprocess.Popen(
                     ['curl', '-XPOST', '-H', 'application/x-www-form-urlencoded;charset=UTF-8', '-d',
-                     'grant_type=refresh_token&refresh_token=' + self.globals[CONFIG][
-                         'refreshToken'] + '&client_id=' + self.globals[CONFIG][
-                         'clientId'] + '&client_secret=' + self.globals[CONFIG][SECRET],
+                     'grant_type=refresh_token&refresh_token='
+                     + self.globals[CONFIG][REFRESH_TOKEN]
+                     + '&client_id=' + self.globals[CONFIG][CLIENT_ID]
+                     + '&client_secret=' + self.globals[CONFIG][SECRET],
                      'https://app1pub.smappee.net/dev/v1/oauth2/token', '-d', ''], stdout=subprocess.PIPE)
 
                 response = ""
